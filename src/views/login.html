@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Northwind - Iniciar Sesión</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+</head>
+<body class="bg-light d-flex align-items-center justify-content-center vh-100">
+
+    <div class="card shadow-lg p-4 border-0 rounded-4" style="max-width: 440px; width: 100%;">
+        <div class="text-center mb-3">
+            <span class="badge bg-primary-subtle text-primary px-3 py-2 rounded-pill fs-6">Northwind API</span>
+            <h3 class="fw-bold text-dark mt-2 mb-1">Acceso con API Key</h3>
+            <p class="text-muted small">
+                Autenticación segura mediante cabecera <code>X-API-KEY</code>.
+            </p>
+        </div>
+
+        <form id="formLogin" novalidate>
+            <div id="alertError" class="alert alert-danger d-none py-2 small" role="alert"></div>
+
+            <div class="mb-3">
+                <label for="txtApiKey" class="form-label small fw-semibold">API Key <span class="text-danger">*</span></label>
+                <input type="text" id="txtApiKey" class="form-control" placeholder="Ej. ROBE-LINGO-KEY-1234" value="ROBE-LINGO-KEY-1234" required autocomplete="off">
+                <div class="form-text small">Clave predeterminada de la API escolar.</div>
+            </div>
+
+            <div class="mb-3">
+                <label for="txtApiUrl" class="form-label small fw-semibold">URL del Backend (API)</label>
+                <input type="url" id="txtApiUrl" class="form-control" placeholder="http://localhost:5009" value="http://localhost:5009">
+                <div class="form-text small">Puerto configurado en launchSettings.json (5009).</div>
+            </div>
+
+            <button type="submit" id="btnLogin" class="btn btn-primary py-2 px-3 fw-semibold shadow-sm w-100">
+                Ingresar al Sistema
+            </button>
+        </form>
+    </div>
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Controlador exclusivo de Login -->
+    <script type="module" src="./src/controllers/loginController.js"></script>
+</body>
+</html>
