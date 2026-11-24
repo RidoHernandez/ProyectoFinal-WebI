@@ -1,5 +1,5 @@
 import { authService } from "../services/authService.js";
-import { DEFAULT_API_KEY, DEFAULT_BASE_URL, getApiKey, getBaseUrl } from "../api/httpClient.js";
+import { DEFAULT_BASE_URL, getApiKey, getBaseUrl } from "../api/httpClient.js";
 
 document.addEventListener('DOMContentLoaded', async () => {
     // Si ya hay sesión activa válida, redirigir a productos
@@ -15,8 +15,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btnLogin = document.getElementById('btnLogin');
     const alertError = document.getElementById('alertError');
 
-    // Cargar valores previos si existen en localStorage
-    txtApiKey.value = getApiKey() || DEFAULT_API_KEY;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('reason') === 'session_expired' && alertError) {
+        alertError.textContent = 'Tu sesión ha expirado o la API Key ya no es válida. Inicia sesión nuevamente.';
+        alertError.classList.remove('d-none');
+    }
+
+    // Cargar valores previos si existen en almacenamiento
+    txtApiKey.value = getApiKey() || '';
     txtApiUrl.value = getBaseUrl() || DEFAULT_BASE_URL;
 
     form.addEventListener('submit', async (e) => {

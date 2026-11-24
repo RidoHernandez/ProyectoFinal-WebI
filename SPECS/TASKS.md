@@ -28,12 +28,12 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 
 | Fase | Descripcion | Total Tareas | Completadas | En Progreso | Pendientes | Avance (%) |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Fase 1** | Configuracion base y cliente HTTP | 4 | 0 | 1 | 3 | 10% |
+| **Fase 1** | Configuracion base y cliente HTTP | 4 | 4 | 0 | 0 | 100% |
 | **Fase 2** | Autenticacion, registro y control de roles | 7 | 0 | 1 | 6 | 10% |
 | **Fase 3** | Gestion de productos y catalogo | 6 | 0 | 1 | 5 | 15% |
 | **Fase 4** | Consulta de clientes y ordenes | 4 | 0 | 0 | 4 | 0% |
 | **Fase 5** | Seguridad en cliente, validaciones Vanilla y buenas practicas | 5 | 0 | 1 | 4 | 15% |
-| **TOTAL** | **Consolidado del Proyecto** | **26** | **0** | **4** | **22** | **10%** |
+| **TOTAL** | **Consolidado del Proyecto** | **26** | **4** | **3** | **19** | **25%** |
 
 ---
 
@@ -63,49 +63,49 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 ### FASE 1: Configuracion Base y Cliente HTTP
 
 #### [TASK-F1-01] Configuracion Centralizada de Entorno y Conexion API
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Archivos Afectados:** `src/api/config.js` (o constante central en `src/api/httpClient.js`)
 * **Requisitos:** `REQ-SEC-001`
 * **Descripcion:** Centralizar la URL base del backend congelado (`http://localhost:5009/api`), permitiendo parametrizacion de desarrollo sin alterar secretos ni requerir build tools.
 * **Criterios de Aceptacion:**
-  * - [ ] Crear/confirmar constante `API_BASE_URL` con valor por defecto `http://localhost:5009/api`.
-  * - [ ] Soporte para sobreescritura opcional mediante `localStorage.getItem('northwind_api_url')` exclusivamente para configuracion no sensible.
-  * - [ ] Exportacion de constantes de endpoints (`AUTH_LOGIN`, `AUTH_REGISTER`, `APIKEYS_REGENERATE`, `PRODUCTS`, `CUSTOMERS`, `ORDERS`).
+  * - [x] Crear/confirmar constante `API_BASE_URL` con valor por defecto `http://localhost:5009/api`.
+  * - [x] Soporte para sobreescritura opcional mediante `localStorage.getItem('northwind_api_url')` exclusivamente para configuracion no sensible.
+  * - [x] Exportacion de constantes de endpoints (`AUTH_LOGIN`, `AUTH_REGISTER`, `APIKEYS_REGENERATE`, `PRODUCTS`, `CUSTOMERS`, `ORDERS`).
 
 #### [TASK-F1-02] Inyeccion Automatica de Cabecera X-API-KEY en Cliente HTTP
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Critica
 * **Archivos Afectados:** `src/api/httpClient.js`
 * **Requisitos:** `REQ-SEC-001`, `REQ-SEC-005`
 * **Descripcion:** Asegurar que toda peticion HTTP hacia endpoints privados del backend inyecte de manera obligatoria y transparente la cabecera `X-API-KEY`.
 * **Criterios de Aceptacion:**
-  * - [ ] `httpClient.js` lee la API Key activa de forma prioritaria desde `sessionStorage.getItem('northwind_api_key')`.
-  * - [ ] Si existe API Key, inyectar el encabezado `X-API-KEY: <key>` en cada solicitud `GET`, `POST`, `PUT`, `DELETE`.
-  * - [ ] En llamadas a endpoints publicos (`/api/auth/login`, `/api/auth/register`), no bloquear la peticion si la API Key aun no esta establecida.
+  * - [x] `httpClient.js` lee la API Key activa de forma prioritaria desde `sessionStorage.getItem('northwind_api_key')`.
+  * - [x] Si existe API Key, inyectar el encabezado `X-API-KEY: <key>` en cada solicitud `GET`, `POST`, `PUT`, `DELETE`.
+  * - [x] En llamadas a endpoints publicos (`/api/auth/login`, `/api/auth/register`), no bloquear la peticion si la API Key aun no esta establecida.
 
 #### [TASK-F1-03] Soporte Integral de ProblemDetails (RFC 7807) y Normalizacion de Errores
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Archivos Afectados:** `src/api/httpClient.js`
 * **Requisitos:** `REQ-SEC-002`, `REQ-BIZ-001`
 * **Descripcion:** Procesar de forma estandarizada los errores devueltos por el backend en formato ProblemDetails (`application/problem+json`).
 * **Criterios de Aceptacion:**
-  * - [ ] Detectar respuestas HTTP `!response.ok` e intentar parsear el cuerpo JSON de ProblemDetails.
-  * - [ ] Extraer de forma estructurada `status`, `title`, `detail`, e `instance`.
-  * - [ ] Mapear mensajes genericos amigables sin exponer stack traces ni detalles de base de datos.
-  * - [ ] Manejar especificamente respuestas 400 (duplicados / validacion), 401 (no autorizado), 403 (prohibido), 404 (no encontrado), 409 (conflicto de integridad) y 500 (error interno).
+  * - [x] Detectar respuestas HTTP `!response.ok` e intentar parsear el cuerpo JSON de ProblemDetails.
+  * - [x] Extraer de forma estructurada `status`, `title`, `detail`, e `instance`.
+  * - [x] Mapear mensajes genericos amigables sin exponer stack traces ni detalles de base de datos.
+  * - [x] Manejar especificamente respuestas 400 (duplicados / validacion), 401 (no autorizado), 403 (prohibido), 404 (no encontrado), 409 (conflicto de integridad) y 500 (error interno).
 
 #### [TASK-F1-04] Interceptor de Respuestas y Deteccion de Sesion Expirada (401 / 403)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Archivos Afectados:** `src/api/httpClient.js`, `src/services/authService.js`
 * **Requisitos:** `REQ-AUTH-001`, `REQ-SEC-001`
 * **Descripcion:** Detectar cuando una solicitud falla por API Key expirada, revocada o invalida (401/403) para purgar la sesion local y redirigir de forma controlada.
 * **Criterios de Aceptacion:**
-  * - [ ] Si un endpoint privado devuelve `401 Unauthorized` por llave invalida o expirada, ejecutar limpieza de `sessionStorage`.
-  * - [ ] Redirigir automaticamente a `login.html` acompanado de un parametro o mensaje indicando sesion expirada.
-  * - [ ] Evitar loops infinitos de redireccion si el error ocurre en la propia pagina de login.
+  * - [x] Si un endpoint privado devuelve `401 Unauthorized` por llave invalida o expirada, ejecutar limpieza de `sessionStorage`.
+  * - [x] Redirigir automaticamente a `login.html` acompanado de un parametro o mensaje indicando sesion expirada.
+  * - [x] Evitar loops infinitos de redireccion si el error ocurre en la propia pagina de login.
 
 ---
 
