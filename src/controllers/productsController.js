@@ -197,8 +197,12 @@ export function renderAccionesProducto(row, rol = rolActual) {
 
 // Adapta dinámicamente los controles de la vista y del modal según el rol conectado (TASK-F3-03 / REQ-AUTH-002)
 export function aplicarPermisosRolProductos(rol = rolActual) {
-    rolActual = String(rol || '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'EMPLEADO';
+    const upperRol = String(rol || '').trim().toUpperCase();
+    rolActual = upperRol === 'ADMIN'
+        ? 'ADMIN'
+        : (upperRol === 'EMPLEADO' ? 'EMPLEADO' : 'CLIENTE');
     const esAdmin = rolActual === 'ADMIN';
+    const puedeEditarStockPrecio = rolActual === 'ADMIN' || rolActual === 'EMPLEADO';
 
     const doc = getDoc();
     if (!doc) return;
@@ -259,13 +263,13 @@ export function aplicarPermisosRolProductos(rol = rolActual) {
     }
 
     if (prodPrice) {
-        prodPrice.disabled = false;
-        prodPrice.readOnly = false;
+        prodPrice.disabled = !puedeEditarStockPrecio;
+        prodPrice.readOnly = !puedeEditarStockPrecio;
     }
 
     if (prodStock) {
-        prodStock.disabled = false;
-        prodStock.readOnly = false;
+        prodStock.disabled = !puedeEditarStockPrecio;
+        prodStock.readOnly = !puedeEditarStockPrecio;
     }
 }
 
@@ -344,11 +348,6 @@ export function mostrarToastProducto(mensaje, tipo = 'success') {
     toastEl.dataset.tipo = tipo;
     bodyEl.textContent = textoSeguro;
 
-    // En MockElement (pruebas unitarias), sincronizar textContent en el contenedor padre también
-    if (Object.prototype.hasOwnProperty.call(toastEl, 'textContent')) {
-        toastEl.textContent = textoSeguro;
-    }
-
     setElementVisibility(toastEl, true);
 
     if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
@@ -374,7 +373,12 @@ export function renderizarTablaFallback(lista = productosCache, rol = rolActual)
     if (!tbody) return;
 
     const items = Array.isArray(lista) ? lista : [];
-    tbody.children = [];
+    if (Array.isArray(tbody.children)) {
+        tbody.children.length = 0;
+        tbody.innerHTML = '';
+    } else {
+        tbody.textContent = '';
+    }
 
     const htmlRows = items.map((prod) => {
         const id = prod?.productId ?? prod?.ProductId ?? '';
@@ -393,25 +397,57 @@ export function renderizarTablaFallback(lista = productosCache, rol = rolActual)
 
         if (typeof doc.createElement === 'function') {
             const tr = doc.createElement('tr');
-            tr.dataset.productId = String(id);
-            tr.innerHTML = `
-                <td><strong>${escapeHtml(id)}</strong></td>
-                <td>${escapeHtml(name)}</td>
-                <td>${escapeHtml(formatCurrency(price))}</td>
-                <td>${escapeHtml(stock)}</td>
-                <td>${estadoBadge}</td>
-                <td class="text-center text-nowrap">${accionesHtml}</td>
-            `;
-            if (Object.prototype.hasOwnProperty.call(tr, 'textContent')) {
-                tr.textContent = `${id} ${name} ${formatCurrency(price)} ${stock} ${disc ? 'Descontinuado' : 'Activo'}`;
+            if (tr.dataset) {
+                tr.dataset.productId = String(id);
             }
+            tr.setAttribute?.('data-product-id', String(id));
+
+            const tdId = doc.createElement('td');
+            const strongId = doc.createElement('strong');
+            strongId.textContent = String(id);
+            tdId.appendChild(strongId);
+            if (!tdId.innerHTML) {
+                tdId.innerHTML = `<strong>${escapeHtml(id)}</strong>`;
+            }
+
+            const tdName = doc.createElement('td');
+            tdName.textContent = String(name);
+
+            const tdPrice = doc.createElement('td');
+            tdPrice.textContent = formatCurrency(price);
+
+            const tdStock = doc.createElement('td');
+            tdStock.textContent = String(stock);
+
+            const tdStatus = doc.createElement('td');
+            const spanBadge = doc.createElement('span');
+            spanBadge.className = disc ? 'badge bg-danger' : 'badge bg-success';
+            spanBadge.textContent = disc ? 'Descontinuado' : 'Activo';
+            tdStatus.appendChild(spanBadge);
+            if (!tdStatus.innerHTML) {
+                tdStatus.innerHTML = estadoBadge;
+            }
+
+            const tdActions = doc.createElement('td');
+            tdActions.className = 'text-center text-nowrap';
+            tdActions.innerHTML = accionesHtml;
+
+            tr.appendChild(tdId);
+            tr.appendChild(tdName);
+            tr.appendChild(tdPrice);
+            tr.appendChild(tdStock);
+            tr.appendChild(tdStatus);
+            tr.appendChild(tdActions);
+
             tbody.appendChild(tr);
         }
 
         return `<tr data-product-id="${escapeHtml(id)}"><td><strong>${escapeHtml(id)}</strong></td><td>${escapeHtml(name)}</td><td>${escapeHtml(formatCurrency(price))}</td><td>${escapeHtml(stock)}</td><td>${estadoBadge}</td><td class="text-center text-nowrap">${accionesHtml}</td></tr>`;
     });
 
-    tbody.innerHTML = htmlRows.join('');
+    if (!tbody.innerHTML) {
+        tbody.innerHTML = htmlRows.join('');
+    }
 }
 
 export async function listarProductos() {

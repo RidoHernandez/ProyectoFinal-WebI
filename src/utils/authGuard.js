@@ -22,6 +22,15 @@ export function authGuard(allowedRoles = []) {
     purgeResidualLocalStorage();
 
     if (!authService.isAuthenticated()) {
+        try {
+            if (typeof document !== 'undefined' && document.body) {
+                document.body.setAttribute('data-auth-blocked', '401');
+                document.body.style.display = 'none';
+            }
+        } catch {
+            // Ignore DOM errors in non-browser environments
+        }
+
         if (typeof window !== 'undefined' && window.location) {
             window.location.href = './login.html';
         }

@@ -320,7 +320,6 @@ export const productService = {
             discontinued: true
         };
 
-        markProductDiscontinued(id, true);
         return await productService.update(id, updatePayload);
     },
 

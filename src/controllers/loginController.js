@@ -4,6 +4,7 @@ import { API_BASE_URL, STORAGE_KEYS, getBaseUrl } from "../api/httpClient.js";
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+)/i;
+const GENERIC_HTTP_REASONS = new Set(['bad request', 'unauthorized', 'forbidden', 'not found']);
 
 /**
  * Determina la ruta de redirección según el rol asignado al usuario.
@@ -30,6 +31,12 @@ function sanitizeErrorText(text) {
     return trimmed;
 }
 
+function normalizeNonGenericText(text) {
+    const clean = sanitizeErrorText(text);
+    if (!clean) return '';
+    return GENERIC_HTTP_REASONS.has(clean.toLowerCase()) ? '' : clean;
+}
+
 /**
  * Extrae un mensaje amigable desde ProblemDetails (RFC 7807) o desde un objeto Error.
  */
@@ -54,24 +61,24 @@ export function extractProblemMessage(error, fallback = 'Ocurrió un error al pr
         }
     }
 
-    const detail = sanitizeErrorText(pd?.detail || error?.detail);
-    const message = sanitizeErrorText(pd?.message || error?.message);
-    const title = sanitizeErrorText(pd?.title || error?.title);
+    const detail = normalizeNonGenericText(pd?.detail || error?.detail);
+    const message = normalizeNonGenericText(pd?.message || error?.message);
+    const title = normalizeNonGenericText(pd?.title || error?.title);
 
-    if (detail && detail.toLowerCase() !== 'bad request' && detail.toLowerCase() !== 'unauthorized') {
+    if (detail) {
         return detail;
     }
-    if (message && message.toLowerCase() !== 'bad request' && message.toLowerCase() !== 'unauthorized') {
+    if (message) {
         return message;
     }
     if (status === 401) {
-        return detail || message || 'Credenciales inválidas. Verifica tu nombre de usuario y contraseña.';
+        return 'Credenciales inválidas. Verifica tu nombre de usuario y contraseña.';
     }
     if (status === 400) {
-        return detail || message || title || 'Solicitud inválida. Revisa los campos marcados en el formulario.';
+        return title || 'Solicitud inválida. Revisa los campos marcados en el formulario.';
     }
 
-    return detail || message || title || fallback;
+    return title || fallback;
 }
 
 /**

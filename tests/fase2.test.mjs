@@ -894,3 +894,44 @@ test('TASK-F2-07: Modal y flujo de regeneracion de API Key para ADMIN y EMPLEADO
     assert.equal(doc.getElementById('alertApiKeyResultado').hidden, false);
     assert.ok(doc.getElementById('alertApiKeyResultado').textContent.includes('regenerada exitosamente'));
 });
+
+test('Regresion Fase 2: login sin minlength=8 en password, extractProblemMessage generico, authGuard 401 y cierre fallback modal API Key', async () => {
+    // 1. #txtLoginPassword no debe exigir minlength="8" en login.html (solo en registro)
+    const loginHtml = fs.readFileSync(path.join(ROOT_DIR, 'src/views/login.html'), 'utf8');
+    const loginPwdTag = loginHtml.match(/<input[^>]*id="txtLoginPassword"[^>]*>/i)?.[0] || '';
+    assert.ok(loginPwdTag.length > 0);
+    assert.equal(/minlength=/i.test(loginPwdTag), false);
+
+    // 2. extractProblemMessage debe mapear razones HTTP genericas (Bad Request / Unauthorized) a mensajes amigables
+    assert.equal(
+        loginMod.extractProblemMessage({ status: 401, detail: 'Unauthorized' }),
+        'Credenciales inválidas. Verifica tu nombre de usuario y contraseña.'
+    );
+    assert.equal(
+        loginMod.extractProblemMessage({ status: 400, detail: 'Bad Request' }),
+        'Solicitud inválida. Revisa los campos marcados en el formulario.'
+    );
+
+    // 3. authGuard oculta el body con data-auth-blocked="401" cuando no hay sesion
+    resetEnvironment('/src/views/productos.html');
+    const doc = globalThis.document;
+    const bodyEl = new MockElement('body');
+    doc.body = bodyEl;
+    const blocked = authGuard(['ADMIN']);
+    assert.equal(blocked, false);
+    assert.equal(bodyEl.getAttribute('data-auth-blocked'), '401');
+    assert.equal(bodyEl.style.display, 'none');
+
+    // 4. hideApiKeyModalFallback oculta el modal y limpia #alertApiKeyResultado
+    const modalEl = doc.registerElement(new MockElement('div', 'modalApiKey'));
+    modalEl.classList.add('show');
+    modalEl.style.display = 'block';
+    const alertResultado = doc.registerElement(new MockElement('div', 'alertApiKeyResultado'));
+    alertResultado.hidden = false;
+
+    tableHelpers.hideApiKeyModalFallback(modalEl);
+    assert.equal(modalEl.classList.contains('show'), false);
+    assert.equal(modalEl.style.display, 'none');
+    assert.equal(modalEl.getAttribute('aria-hidden'), 'true');
+    assert.equal(alertResultado.hidden, true);
+});
