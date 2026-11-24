@@ -1,7 +1,7 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
 documento: Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
-version: 1.0.0
+version: 1.2.0
 estado_global: IN_PROGRESS
 ultima_actualizacion: 2026-11-23
 formato_agente: AI-READABLE-TASKS-V1
@@ -29,11 +29,11 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | Fase | Descripcion | Total Tareas | Completadas | En Progreso | Pendientes | Avance (%) |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Fase 1** | Configuracion base y cliente HTTP | 4 | 4 | 0 | 0 | 100% |
-| **Fase 2** | Autenticacion, registro y control de roles | 7 | 0 | 1 | 6 | 10% |
+| **Fase 2** | Autenticacion, registro y control de roles | 7 | 7 | 0 | 0 | 100% |
 | **Fase 3** | Gestion de productos y catalogo | 6 | 0 | 1 | 5 | 15% |
 | **Fase 4** | Consulta de clientes y ordenes | 4 | 0 | 0 | 4 | 0% |
 | **Fase 5** | Seguridad en cliente, validaciones Vanilla y buenas practicas | 5 | 0 | 1 | 4 | 15% |
-| **TOTAL** | **Consolidado del Proyecto** | **26** | **4** | **3** | **19** | **25%** |
+| **TOTAL** | **Consolidado del Proyecto** | **26** | **11** | **2** | **13** | **46%** |
 
 ---
 
@@ -112,88 +112,88 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 ### FASE 2: Autenticacion, Registro y Control de Roles (RBAC)
 
 #### [TASK-F2-01] Implementacion del Servicio de Autenticacion (`authService.js`)
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Critica
 * **Archivos Afectados:** `src/services/authService.js`
 * **Requisitos:** `REQ-AUTH-001`, `REQ-AUTH-002`, `REQ-AUTH-003`
 * **Descripcion:** Proveer los metodos centrales para iniciar sesion, registrar clientes autonomos, regenerar API Keys y gestionar el estado del usuario.
 * **Criterios de Aceptacion:**
-  * - [ ] Implementar `login(username, password)` invocando `POST /api/auth/login`.
-  * - [ ] Implementar `register(username, email, password)` invocando `POST /api/auth/register`.
-  * - [ ] Implementar `regenerateApiKey()` invocando `POST /api/apikeys/regenerate`.
-  * - [ ] Implementar `logout()` que elimine credenciales de `sessionStorage` y redirija a `login.html`.
-  * - [ ] Implementar metodos utilitarios: `getCurrentUser()`, `getApiKey()`, `isAuthenticated()`, `getUserRole()`, `hasRole(allowedRoles)`.
+  * - [x] Implementar `login(username, password)` invocando `POST /api/auth/login`.
+  * - [x] Implementar `register(username, email, password)` invocando `POST /api/auth/register`.
+  * - [x] Implementar `regenerateApiKey()` invocando `POST /api/apikeys/regenerate`.
+  * - [x] Implementar `logout()` que elimine credenciales de `sessionStorage` y redirija a `login.html`.
+  * - [x] Implementar metodos utilitarios: `getCurrentUser()`, `getApiKey()`, `isAuthenticated()`, `getUserRole()`, `hasRole(allowedRoles)`.
 
 #### [TASK-F2-02] Migracion a Almacenamiento Seguro de Sesion en `sessionStorage`
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Critica
 * **Archivos Afectados:** `src/services/authService.js`, `src/api/httpClient.js`
 * **Requisitos:** `REQ-SEC-005`, `REQ-AUTH-001`
 * **Descripcion:** Trasladar el almacenamiento de API Key, token y perfil desde `localStorage` a `sessionStorage` para asegurar la expiracion automatica al cerrar la pestana del navegador.
 * **Criterios de Aceptacion:**
-  * - [ ] Guardar sesion bajo una clave segura `auth_session` en `sessionStorage`:
-    `{ userId, username, role, apiKey, expiresAt, authenticatedAt }`.
-  * - [ ] Eliminar toda API Key residual de `localStorage` al iniciar la aplicacion.
-  * - [ ] Comprobar vigencia de `expiresAt` en cada invocacion de `isAuthenticated()`. Si ha expirado, forzar `logout()`.
+  * - [x] Guardar sesion bajo una clave segura `auth_session` en `sessionStorage`:
+    `{ userId, username, role, apiKey, expiresAt, authenticatedAt, signature }`.
+  * - [x] Eliminar toda API Key residual de `localStorage` al iniciar la aplicacion.
+  * - [x] Comprobar vigencia de `expiresAt` en cada invocacion de `isAuthenticated()`. Si ha expirado, forzar `logout()`.
 
 #### [TASK-F2-03] Mapeo Determinista de Perfiles y Roles (`ADMIN`, `EMPLEADO`, `CLIENTE`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Archivos Afectados:** `src/services/authService.js`
 * **Requisitos:** `REQ-AUTH-002`, `REQ-AUTH-003`
 * **Descripcion:** Implementar la logica determinista de asignacion de roles en frontend de acuerdo con la matriz RBAC de la especificacion:
 * **Criterios de Aceptacion:**
-  * - [ ] Rol `ADMIN`: Asignado cuando la API Key activa coincide con la llave maestra institucional (`ROBE-LINGO-KEY-1234`) o el nombre de usuario es un administrador reconocido (`admin`, `administrador`).
-  * - [ ] Rol `EMPLEADO`: Asignado cuando el nombre de usuario posee prefijo operativo (`emp_`) o pertenece a la lista blanca de empleados de operacion.
-  * - [ ] Rol `CLIENTE`: Asignado estrictamente a todo usuario registrado mediante `POST /api/auth/register` y usuarios estandar.
-  * - [ ] Inmutabilidad en cliente: El usuario no puede modificar su rol mediante edicion simple de almacenamiento sin invalidar la sesion.
+  * - [x] Rol `ADMIN`: Asignado cuando el nombre de usuario autenticado via `POST /api/auth/login` pertenece a la lista de administradores reconocidos (`admin`, `administrador`).
+  * - [x] Rol `EMPLEADO`: Asignado cuando el nombre de usuario posee prefijo operativo (`emp_`) o pertenece a la lista blanca de empleados de operacion (`empleado`, `operador`, `ventas`).
+  * - [x] Rol `CLIENTE`: Asignado estrictamente a todo usuario registrado mediante `POST /api/auth/register` y usuarios estandar.
+  * - [x] Inmutabilidad en cliente: El usuario no puede modificar su rol mediante edicion simple de almacenamiento sin invalidar la sesion (firma de integridad `signature` verificada en `verifySessionIntegrity`).
 
 #### [TASK-F2-04] Guardias de Navegacion Sincronas (`authGuard.js`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Critica
-* **Archivos Afectados:** `src/utils/authGuard.js`
+* **Archivos Afectados:** `src/utils/authGuard.js`, `src/controllers/productsController.js`, `src/controllers/customersController.js`, `src/controllers/ordersController.js`, `src/controllers/catalogController.js`
 * **Requisitos:** `REQ-SEC-001`, `REQ-AUTH-002`
 * **Descripcion:** Crear guardia de navegacion modular para proteger el acceso a las paginas HTML segun la matriz de permisos.
 * **Criterios de Aceptacion:**
-  * - [ ] Crear funcion exportable `authGuard(allowedRoles = [])`.
-  * - [ ] Si el usuario no esta autenticado, redirigir de inmediato a `login.html`.
-  * - [ ] Si el rol del usuario no esta en `allowedRoles`, bloquear renderizado, mostrar alerta de acceso denegado (403) y redirigir a `catalogo.html`.
-  * - [ ] Invocar `authGuard` como primera instruccion en el script principal de cada vista protegida (`productos.html`, `clientes.html`, `ordenes.html`, `catalogo.html`).
+  * - [x] Crear funcion exportable `authGuard(allowedRoles = [])`.
+  * - [x] Si el usuario no esta autenticado, redirigir de inmediato a `login.html`.
+  * - [x] Si el rol del usuario no esta en `allowedRoles`, bloquear renderizado, mostrar alerta de acceso denegado (403) y redirigir a `catalogo.html`.
+  * - [x] Invocar `authGuard` como primera instruccion en el script principal de cada vista protegida (`src/views/productos.html`, `src/views/clientes.html`, `src/views/pedidos.html` / `src/views/ordenes.html`, `src/views/catalogo.html`).
 
-#### [TASK-F2-05] Interfaz y Controlador de Autenticacion y Registro (`login.html`, `loginController.js`)
-* **Estado:** `[TODO]`
+#### [TASK-F2-05] Interfaz y Controlador de Autenticacion y Registro (`src/views/login.html`, `src/controllers/loginController.js`)
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
-* **Archivos Afectados:** `login.html`, `src/controllers/loginController.js`
+* **Archivos Afectados:** `src/views/login.html`, `src/controllers/loginController.js`
 * **Requisitos:** `REQ-AUTH-001`, `REQ-BIZ-002`, `REQ-SEC-002`
 * **Descripcion:** Modernizar la vista de acceso para permitir tanto el inicio de sesion con credenciales existentes como el registro autonomo de nuevos clientes.
 * **Criterios de Aceptacion:**
-  * - [ ] Pestañas o alternancia fluida entre formulario de "Iniciar Sesion" y "Registrarse como Cliente".
-  * - [ ] Validacion en cliente: usuario requerido, correo con formato valido, contrasena con longitud minima de 8 caracteres.
-  * - [ ] Registro exitoso: crea la cuenta mediante `/api/auth/register`, asigna rol `CLIENTE`, guarda sesion en `sessionStorage` y redirige a `catalogo.html`.
-  * - [ ] Login exitoso: valida credenciales, asigna rol correspondiente (`ADMIN`/`EMPLEADO` redirige a `productos.html`, `CLIENTE` a `catalogo.html`).
-  * - [ ] Despliegue de errores amigables ante ProblemDetails (ej. "El nombre de usuario ya se encuentra registrado", "Credenciales invalidas").
+  * - [x] Pestañas o alternancia fluida entre formulario de "Iniciar Sesion" y "Registrarse como Cliente".
+  * - [x] Validacion en cliente: usuario requerido, correo con formato valido, contrasena con longitud minima de 8 caracteres.
+  * - [x] Registro exitoso: crea la cuenta mediante `/api/auth/register`, asigna rol `CLIENTE`, guarda sesion en `sessionStorage` y redirige a `catalogo.html`.
+  * - [x] Login exitoso: valida credenciales, asigna rol correspondiente (`ADMIN`/`EMPLEADO` redirige a `productos.html`, `CLIENTE` a `catalogo.html`).
+  * - [x] Despliegue de errores amigables ante ProblemDetails (ej. "El nombre de usuario ya se encuentra registrado", "Credenciales invalidas").
 
 #### [TASK-F2-06] Adaptacion Dinamica de la Interfaz segun el Rol Conectado
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
-* **Archivos Afectados:** `src/utils/tableHelpers.js`, vistas HTML comunes
+* **Archivos Afectados:** `src/utils/tableHelpers.js`, `src/controllers/productsController.js`, vistas HTML en `src/views/`
 * **Requisitos:** `REQ-AUTH-002`, `REQ-AUTH-003`
 * **Descripcion:** Ocultar o deshabilitar elementos del menu de navegacion, botones de accion y opciones segun el rol del usuario autenticado.
 * **Criterios de Aceptacion:**
-  * - [ ] Renderizar barra de navegacion mostrando nombre del usuario y badge del rol (`ADMIN`, `EMPLEADO`, `CLIENTE`).
-  * - [ ] Ocultar enlaces no autorizados (ej. enlace a `productos.html` y `clientes.html` oculto para `CLIENTE`).
-  * - [ ] Boton de cerrar sesion accesible en todas las vistas con confirmacion rapida.
+  * - [x] Renderizar barra de navegacion mostrando nombre del usuario y badge del rol (`ADMIN`, `EMPLEADO`, `CLIENTE`).
+  * - [x] Ocultar enlaces no autorizados (ej. enlace a `productos.html` y `clientes.html` oculto para `CLIENTE`).
+  * - [x] Boton de cerrar sesion accesible en todas las vistas con confirmacion rapida.
 
 #### [TASK-F2-07] Funcionalidad de Regeneracion de API Key
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
-* **Archivos Afectados:** `src/services/authService.js`, vistas administrativas
+* **Archivos Afectados:** `src/services/authService.js`, `src/utils/tableHelpers.js`, vistas administrativas en `src/views/`
 * **Requisitos:** `REQ-AUTH-002`
 * **Descripcion:** Permitir a usuarios autorizados (`ADMIN`, `EMPLEADO`) renovar su API Key mediante `POST /api/apikeys/regenerate`.
 * **Criterios de Aceptacion:**
-  * - [ ] Modal o seccion de perfil que muestre la API Key activa truncada y su fecha de expiracion.
-  * - [ ] Boton "Regenerar API Key" con advertencia de invalidacion de la llave anterior.
-  * - [ ] Al recibir respuesta exitosa, actualizar inmediatamente `sessionStorage` con la nueva API Key sin requerir re-login.
+  * - [x] Modal o seccion de perfil que muestre la API Key activa truncada y su fecha de expiracion.
+  * - [x] Boton "Regenerar API Key" con advertencia de invalidacion de la llave anterior.
+  * - [x] Al recibir respuesta exitosa, actualizar inmediatamente `sessionStorage` con la nueva API Key sin requerir re-login.
 
 ---
 
@@ -401,3 +401,4 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | Fecha | Agente / Autor | Version | Accion Realizada |
 | :--- | :--- | :---: | :--- |
 | 2026-11-23 | @planificador | 1.0.0 | Creacion inicial de la estructura WBS y desglose detallado de tareas (`TASK-F1-01` a `TASK-F5-05`) distribuido en las 5 fases del proyecto, con trazabilidad bidireccional contra `ReqProyectoWEB.md` (v1.1.0) y contratos inmutables del backend congelado. |
+| 2026-11-23 | @verifier | 1.2.0 | Completada y verificada al 100% la Fase 2 (`TASK-F2-01` a `TASK-F2-07`): implementacion de `authService.js` (`login`, `register`, `regenerateApiKey`, `logout`, utilidades RBAC y firma de integridad en `sessionStorage`), eliminacion de la llave maestra estatica en frontend, creacion de `authGuard.js` e integracion en controladores y vistas de `src/views/`, interfaz dual de login/registro en `src/views/login.html` y `loginController.js`, adaptacion dinamica de navbar y modal de regeneracion de API Key en `tableHelpers.js`, y suite de pruebas automatizadas (`tests/fase1.test.mjs` y `tests/fase2.test.mjs`, 15/15 tests pasando). |

@@ -1,6 +1,6 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
-version: 1.1.0
+version: 1.2.0
 estado_global: IN_PROGRESS
 ultima_actualizacion: 2026-11-23
 formato_agente: AI-READABLE-SPEC-V1
@@ -23,11 +23,11 @@ Este documento esta estructurado para ser analizado y actualizado de forma deter
 
 | Modulo | ID Modulo | Total Requisitos | Completados | En Progreso | Pendientes | Avance (%) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| Autenticacion y Roles | AUTH | 3 | 0 | 3 | 0 | 50% |
+| Autenticacion y Roles | AUTH | 3 | 3 | 0 | 0 | 100% |
 | Gestion Comercial y Clientes | CORE | 2 | 0 | 2 | 0 | 35% |
-| Reglas de Negocio | BIZ | 3 | 1 | 2 | 0 | 65% |
-| Seguridad y Control de Acceso | SEC | 6 | 2 | 4 | 0 | 60% |
-| **TOTAL** | **ALL** | **14** | **3** | **11** | **0** | **52%** |
+| Reglas de Negocio | BIZ | 3 | 3 | 0 | 0 | 100% |
+| Seguridad y Control de Acceso | SEC | 6 | 3 | 3 | 0 | 75% |
+| **TOTAL** | **ALL** | **14** | **9** | **5** | **0** | **80%** |
 
 ---
 
@@ -74,7 +74,7 @@ Dado que la tabla `users` en base de datos no contiene una columna de rol mutabl
 
 1. **Administrador (`ADMIN`)**:
    * **Alcance:** Control total y gobierno del sistema.
-   * **Credencial / Origen:** Uso de la API Key Maestra institucional (`ROBE-LINGO-KEY-1234`) o cuentas con nombre de usuario con privilegios administrativos declarados (`admin`, `administrador`).
+   * **Credencial / Origen:** Cuentas autenticadas mediante `POST /api/auth/login` con nombre de usuario con privilegios administrativos declarados (`admin`, `administrador`).
    * **Responsabilidades:**
      * Gestion integral del catalogo e inventario de productos (Creacion `POST`, Edicion `PUT`, Descontinuacion logica y Eliminacion `DELETE`).
      * Acceso irrestricto a la vista de gestion de productos (`productos.html`).
@@ -169,35 +169,35 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
 ### Modulo: Autenticacion y Roles (AUTH)
 
 #### [REQ-AUTH-001] Registro Autonomo de Clientes
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Descripcion:** Permitir que los usuarios finales se registren de forma autonoma mediante `POST /api/auth/register`. El sistema frontend garantiza que todo usuario registrado por este medio obtenga estrictamente el rol `CLIENTE`.
 * **Criterios de Aceptacion:**
   * - [x] **[Backend]** Endpoint `/api/auth/register` operativo, validando unicidad de `Username` y `Email`.
   * - [x] **[Backend]** Almacenamiento seguro de contrasenas mediante PBKDF2 (100,000 iteraciones, SHA256, salt criptografico de 16 bytes).
   * - [x] **[Backend]** Generacion automatica de API Key vinculada con expiracion a 30 dias.
-  * - [ ] **[Frontend]** Formulario publico de registro con validacion en tiempo real (formato de correo, longitud minima de 8 caracteres en contrasena).
-  * - [ ] **[Frontend]** Asignacion automatica e inmutable del perfil `CLIENTE` en la sesion tras registro exitoso.
-  * - [ ] **[Frontend]** Manejo e interpretacion de ProblemDetails (errores 400 por usuario o correo duplicado) con mensajes claros al usuario.
+  * - [x] **[Frontend]** Formulario publico de registro con validacion en tiempo real (formato de correo, longitud minima de 8 caracteres en contrasena).
+  * - [x] **[Frontend]** Asignacion automatica e inmutable del perfil `CLIENTE` en la sesion tras registro exitoso.
+  * - [x] **[Frontend]** Manejo e interpretacion de ProblemDetails (errores 400 por usuario o correo duplicado) con mensajes claros al usuario.
 
 #### [REQ-AUTH-002] Gestion de Administradores y Roles con Privilegios
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Descripcion:** Soporte de roles diferenciados (`ADMIN`, `EMPLEADO`, `CLIENTE`) con matriz de permisos estricta en el frontend para gobernar las vistas y llamadas a la API.
 * **Criterios de Aceptacion:**
   * - [x] **[Arquitectura]** Matriz formal de permisos RBAC definida y documentada (Seccion 4.2).
-  * - [ ] **[Frontend]** Mecanismo de mapeo de perfil en `authService.js`: deteccion de `ADMIN` (mediante API Key Maestra institucional `ROBE-LINGO-KEY-1234` o usuario administrador), `EMPLEADO` (whitelist/nomenclatura operativa) y `CLIENTE` (usuarios estandar).
-  * - [ ] **[Frontend]** Ocultamiento dinamico en el DOM de elementos restringidos (botones de creacion, edicion, eliminacion) segun el rol del usuario conectado.
-  * - [ ] **[Frontend]** Soporte en interfaz administrativa para regenerar API Keys mediante `POST /api/apikeys/regenerate`.
+  * - [x] **[Frontend]** Mecanismo de mapeo determinista de perfil en `authService.js`: deteccion de `ADMIN` (mediante cuentas administrativas `admin`, `administrador` autenticadas via `/api/auth/login`), `EMPLEADO` (whitelist operativa y prefijo `emp_*`) y `CLIENTE` (usuarios registrados y cuentas estandar) con firma de integridad contra manipulacion en `sessionStorage`.
+  * - [x] **[Frontend]** Ocultamiento dinamico en el DOM de elementos restringidos (botones de creacion, edicion, eliminacion y enlaces de navegacion) segun el rol del usuario conectado.
+  * - [x] **[Frontend]** Soporte en interfaz administrativa para regenerar API Keys mediante `POST /api/apikeys/regenerate`.
 
 #### [REQ-AUTH-003] Alta y Diferenciacion de Cuentas Operativas (Empleados)
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Descripcion:** Garantizar que los privilegios operativos de `EMPLEADO` no puedan ser adquiridos de forma autonoma por usuarios publicos. Dado el congelamiento del backend, el registro publico asigna unicamente `CLIENTE`, mientras que las cuentas de `EMPLEADO` son administradas o habilitadas bajo lista de control autorizada.
 * **Criterios de Aceptacion:**
   * - [x] **[Backend]** El endpoint publico `/api/auth/register` no admite parametros de inyeccion de rol (solo recibe `RegisterDto`).
-  * - [ ] **[Frontend]** Blindaje del flujo de registro: ninguna manipulacion en el payload permite elevar privilegios a `EMPLEADO` o `ADMIN`.
-  * - [ ] **[Frontend]** Configuracion centralizada de credenciales operativas de empleados para atencion comercial y mantenimiento de stock.
+  * - [x] **[Frontend]** Blindaje del flujo de registro: ninguna manipulacion en el payload permite elevar privilegios a `EMPLEADO` o `ADMIN`.
+  * - [x] **[Frontend]** Configuracion centralizada de credenciales operativas de empleados para atencion comercial y mantenimiento de stock.
 
 ---
 
@@ -238,14 +238,14 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
   * - [x] **[Frontend]** Captura controlada del error HTTP 409 en caso de intento de eliminacion fisica, informando amigablemente la existencia de registros asociados.
 
 #### [REQ-BIZ-002] Prevencion de Registros Duplicados
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
 * **Descripcion:** Prevenir duplicidad de identificadores criticos (nombres de usuario, correos electronicos y codigos de entidad).
 * **Criterios de Aceptacion:**
   * - [x] **[Backend]** Indices unicos `IX_users_Username` y `IX_users_Email` en base de datos.
   * - [x] **[Backend]** Verificacion explicita en `AuthController.PostRegister` retornando HTTP 400 ProblemDetails ante duplicados.
-  * - [ ] **[Frontend]** Validacion previa en formularios de registro y de productos (evitando nombres vacios o duplicados en cliente).
-  * - [ ] **[Frontend]** Manejo adecuado de respuestas 400 resaltando el campo en conflicto.
+  * - [x] **[Frontend]** Validacion previa en formularios de registro y de productos (evitando nombres vacios o duplicados en cliente).
+  * - [x] **[Frontend]** Manejo adecuado de respuestas 400 resaltando el campo en conflicto.
 
 #### [REQ-BIZ-003] Validacion de Datos en Servidor y Rangos Permitidos
 * **Estado:** `[DONE]`
@@ -262,14 +262,14 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
 ### Modulo: Seguridad y Control de Acceso (SEC)
 
 #### [REQ-SEC-001] Autorizacion Granular en API y Proteccion de Rutas (URL)
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Critica
 * **Descripcion:** Doble capa de autorizacion: el backend valida la autenticidad de la cabecera `X-API-KEY` en cada peticion privada, y el frontend Vanilla JS protege las URLs mediante guardias de navegacion (`authGuard.js`).
 * **Criterios de Aceptacion:**
   * - [x] **[Backend]** Filtro `[ApiKey]` implementado e inyectado en `ProductsController`, `CustomersController`, `OrdersController` y `ApiKeysController`.
   * - [x] **[Backend]** Soporte dual de API Key: validacion contra llave fija institucional (`ROBE-LINGO-KEY-1234`) o contra hash SHA256 en tabla `api_keys`.
-  * - [ ] **[Frontend]** Inyeccion obligatoria y transparente de la cabecera `X-API-KEY` en todas las llamadas de `httpClient.js`.
-  * - [ ] **[Frontend]** Modulo `authGuard.js` ejecutado al cargar cada vista privada; redireccion inmediata a `login.html` si no hay sesion, o a `catalogo.html` con mensaje 403 si el rol no tiene privilegios.
+  * - [x] **[Frontend]** Inyeccion obligatoria y transparente de la cabecera `X-API-KEY` en todas las llamadas de `httpClient.js`.
+  * - [x] **[Frontend]** Modulo `authGuard.js` ejecutado al cargar cada vista privada; redireccion inmediata a `login.html` si no hay sesion, o a `catalogo.html` con mensaje 403 si el rol no tiene privilegios.
 
 #### [REQ-SEC-002] Manejo Estandarizado de Mensajes y ProblemDetails (RFC 7807)
 * **Estado:** `[DONE]`
@@ -304,8 +304,8 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
 * **Descripcion:** Neutralizar codigo malicioso inyectado por usuarios y asegurar el almacenamiento temporal de las credenciales de sesion.
 * **Criterios de Aceptacion:**
   * - [ ] **[Frontend]** Reemplazo de inserciones de riesgo `innerHTML` por asignaciones seguras `textContent` y construccion controlada de nodos DOM.
-  * - [ ] **[Frontend]** Migracion completa del almacenamiento de API Key y perfil desde `localStorage` a `sessionStorage` para limitar la exposicion al ciclo de vida de la pestana.
-  * - [ ] **[Frontend]** Limpieza integral de `sessionStorage` en el evento de cierre de sesion (`logout`).
+  * - [x] **[Frontend]** Migracion completa del almacenamiento de API Key y perfil desde `localStorage` a `sessionStorage` para limitar la exposicion al ciclo de vida de la pestana.
+  * - [x] **[Frontend]** Limpieza integral de `sessionStorage` en el evento de cierre de sesion (`logout`).
 
 #### [REQ-SEC-006] Proteccion contra Fuerza Bruta (Control de Intentos en Frontend)
 * **Estado:** `[IN_PROGRESS]`
@@ -342,3 +342,4 @@ Para incorporar un nuevo requisito, agrega el siguiente bloque en el modulo corr
 | 2026-11-21 | Sistema Inicial | ALL | Creacion de la linea base inicial de requisitos del proyecto. |
 | 2026-11-23 | @analista | ALL | Auditoria integral de viabilidad contra el backend 100% congelado (`APIkey`). Se documento el inventario exacto de endpoints reales, se adaptaron los requisitos de ordenes y clientes a modo solo-lectura, se definieron formalmente los 3 roles (`ADMIN`, `EMPLEADO`, `CLIENTE`) con su matriz RBAC completa, se diseno la arquitectura de seguridad frontend en Vanilla JS (`sessionStorage`, guardias de navegacion, mitigacion XSS, bloqueo por fuerza bruta de 15 min), y se actualizaron los porcentajes de progreso y estados. |
 | 2026-11-23 | Antigravity | ALL | Actualizacion de la ruta oficial del backend congelado a `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH` y recapitulacion tras inspeccion directa de controladores, filtros, DTOs y configuracion (`Program.cs`, `launchSettings.json`, `ApiKeyAttribute.cs`, `AuthController.cs`, `ApiKeysController.cs`, `ProductsController.cs`, `CustomersController.cs`, `OrdersController.cs`). |
+| 2026-11-23 | @verifier | REQ-AUTH-001, REQ-AUTH-002, REQ-AUTH-003, REQ-BIZ-002, REQ-SEC-001, REQ-SEC-005 | Verificacion y cierre de requisitos de Fase 2 (100% de pruebas en `tests/fase1.test.mjs` y `tests/fase2.test.mjs`): autenticacion exclusiva mediante `/api/auth/login` y `/api/auth/register` (eliminando uso de llave maestra estatica en frontend), mapeo RBAC determinista (`ADMIN`, `EMPLEADO` con whitelist y prefijo `emp_*`, `CLIENTE`) con firma de integridad en `sessionStorage`, guardias `authGuard.js` en todas las vistas protegidas de `src/views/`, adaptacion dinamica de interfaz, y regeneracion de API Keys en caliente. |

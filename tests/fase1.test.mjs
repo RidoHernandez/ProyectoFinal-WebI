@@ -256,16 +256,27 @@ test('TASK-F1-04: Interceptor 401 limpia sessionStorage, redirige y evita loop e
 
 test('authService: login, checkSession y logout operan sobre sessionStorage', async () => {
     resetEnvironment('/src/views/login.html');
-    globalThis.fetch = async () => makeResponse({ status: 200, body: { totalProducts: 0, products: [] } });
+    const futureExp = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    globalThis.fetch = async () => makeResponse({
+        status: 200,
+        body: {
+            userId: 1,
+            username: 'admin',
+            apiKey: 'ak_admin_session_001',
+            expiresAt: futureExp
+        }
+    });
 
-    const logged = await authService.login('ROBE-LINGO-KEY-1234', 'http://localhost:5009');
-    assert.equal(logged, true);
-    assert.equal(authService.getApiKey(), 'ROBE-LINGO-KEY-1234');
+    const loggedSession = await authService.login('admin', 'AdminSecret123!', 'http://localhost:5009');
+    assert.equal(loggedSession.username, 'admin');
+    assert.equal(loggedSession.role, 'ADMIN');
+    assert.equal(authService.getApiKey(), 'ak_admin_session_001');
     assert.equal(globalThis.localStorage.getItem('northwind_api_key'), null);
 
     const session = await authService.checkSession();
     assert.equal(session.autenticado, true);
-    assert.equal(session.apiKey, 'ROBE-LINGO-KEY-1234');
+    assert.equal(session.apiKey, 'ak_admin_session_001');
+    assert.equal(session.role, 'ADMIN');
 
     authService.logout();
     assert.equal(authService.getApiKey(), null);

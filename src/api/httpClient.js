@@ -2,6 +2,10 @@ import {
     API_BASE_URL,
     DEFAULT_BASE_URL,
     STORAGE_KEYS,
+    ROLES,
+    ADMIN_WHITELIST,
+    EMPLOYEE_WHITELIST,
+    EMPLOYEE_PREFIX,
     AUTH_LOGIN,
     AUTH_REGISTER,
     APIKEYS_REGENERATE,
@@ -18,6 +22,10 @@ export {
     API_BASE_URL,
     DEFAULT_BASE_URL,
     STORAGE_KEYS,
+    ROLES,
+    ADMIN_WHITELIST,
+    EMPLOYEE_WHITELIST,
+    EMPLOYEE_PREFIX,
     AUTH_LOGIN,
     AUTH_REGISTER,
     APIKEYS_REGENERATE,
@@ -161,6 +169,7 @@ export function setApiConfig(apiKey, baseUrl = null) {
         }
         if (typeof localStorage !== 'undefined') {
             localStorage.removeItem(STORAGE_KEYS.API_KEY);
+            localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
             if (baseUrl && baseUrl.trim() !== '') {
                 localStorage.setItem(STORAGE_KEYS.API_URL, baseUrl.trim().replace(/\/+$/, ''));
             }
@@ -178,6 +187,7 @@ export function clearApiConfig() {
         }
         if (typeof localStorage !== 'undefined') {
             localStorage.removeItem(STORAGE_KEYS.API_KEY);
+            localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
         }
     } catch {
         // Ignore storage errors
