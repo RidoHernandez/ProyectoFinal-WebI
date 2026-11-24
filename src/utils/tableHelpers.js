@@ -1,16 +1,9 @@
+import { escapeHtml } from './securityUtils.js';
+
+export { escapeHtml };
+
 // Traducción oficial de DataTables al español
 export const DT_LANGUAGE_URL = 'https://cdn.datatables.net/plug-ins/2.1.8/i18n/es-MX.json';
-
-// Escapa texto proveniente de la API antes de insertarlo como HTML (evita XSS)
-export function escapeHtml(value) {
-    if (value === null || value === undefined) return '';
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
 
 // Renderizador seguro para columnas de texto en DataTables (DataTable.render.text() + respaldo escapeHtml)
 export function safeTextRender(fallback = '-') {
@@ -458,38 +451,117 @@ export function ensureApiKeyModal(usuario, authService) {
         modalEl.setAttribute('aria-labelledby', 'modalApiKeyTitulo');
         modalEl.setAttribute('aria-hidden', 'true');
 
-        modalEl.innerHTML = `
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content border-0 shadow">
-                    <div class="modal-header bg-dark text-white">
-                        <h5 class="modal-title fw-bold" id="modalApiKeyTitulo">Credencial API Key Activa</h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="mb-3">
-                            <span class="text-muted small d-block">Rol Autorizado</span>
-                            <span id="lblApiKeyRol" class="badge bg-secondary"></span>
-                        </div>
-                        <div class="mb-3">
-                            <span class="text-muted small d-block">API Key Activa (Truncada por seguridad)</span>
-                            <code id="lblApiKeyTruncada" class="fs-6 fw-bold text-dark bg-light border rounded px-2 py-1 d-inline-block mt-1"></code>
-                        </div>
-                        <div class="mb-3">
-                            <span class="text-muted small d-block">Fecha de Expiración</span>
-                            <strong id="lblApiKeyExpiracion" class="text-secondary small"></strong>
-                        </div>
-                        <div id="alertApiKeyWarning" class="alert alert-warning py-2 px-3 small mb-0">
-                            <strong>Advertencia:</strong> Al regenerar tu API Key mediante <code>POST /api/apikeys/regenerate</code>, la llave anterior quedará invalidada de inmediato en el servidor y se actualizará automáticamente en tu sesión activa.
-                        </div>
-                        <div id="alertApiKeyResultado" class="alert d-none py-2 px-3 small mb-0 mt-3" role="status"></div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
-                        <button type="button" id="btnRegenerarApiKey" class="btn btn-warning btn-sm fw-semibold">Regenerar API Key</button>
-                    </div>
-                </div>
-            </div>
-        `;
+        const dialogEl = document.createElement('div');
+        dialogEl.className = 'modal-dialog modal-dialog-centered';
+
+        const contentEl = document.createElement('div');
+        contentEl.className = 'modal-content border-0 shadow';
+
+        // Header
+        const headerEl = document.createElement('div');
+        headerEl.className = 'modal-header bg-dark text-white';
+
+        const titleEl = document.createElement('h5');
+        titleEl.className = 'modal-title fw-bold';
+        titleEl.id = 'modalApiKeyTitulo';
+        titleEl.textContent = 'Credencial API Key Activa';
+
+        const btnCloseHeader = document.createElement('button');
+        btnCloseHeader.type = 'button';
+        btnCloseHeader.className = 'btn-close btn-close-white';
+        btnCloseHeader.setAttribute('data-bs-dismiss', 'modal');
+        btnCloseHeader.setAttribute('aria-label', 'Cerrar');
+
+        headerEl.appendChild(titleEl);
+        headerEl.appendChild(btnCloseHeader);
+
+        // Body
+        const bodyEl = document.createElement('div');
+        bodyEl.className = 'modal-body';
+
+        const rolGroup = document.createElement('div');
+        rolGroup.className = 'mb-3';
+        const rolLabel = document.createElement('span');
+        rolLabel.className = 'text-muted small d-block';
+        rolLabel.textContent = 'Rol Autorizado';
+        const lblRol = document.createElement('span');
+        lblRol.id = 'lblApiKeyRol';
+        lblRol.className = 'badge bg-secondary';
+        rolGroup.appendChild(rolLabel);
+        rolGroup.appendChild(lblRol);
+
+        const keyGroup = document.createElement('div');
+        keyGroup.className = 'mb-3';
+        const keyLabel = document.createElement('span');
+        keyLabel.className = 'text-muted small d-block';
+        keyLabel.textContent = 'API Key Activa (Truncada por seguridad)';
+        const lblTruncada = document.createElement('code');
+        lblTruncada.id = 'lblApiKeyTruncada';
+        lblTruncada.className = 'fs-6 fw-bold text-dark bg-light border rounded px-2 py-1 d-inline-block mt-1';
+        keyGroup.appendChild(keyLabel);
+        keyGroup.appendChild(lblTruncada);
+
+        const expGroup = document.createElement('div');
+        expGroup.className = 'mb-3';
+        const expLabel = document.createElement('span');
+        expLabel.className = 'text-muted small d-block';
+        expLabel.textContent = 'Fecha de Expiración';
+        const lblExpiracion = document.createElement('strong');
+        lblExpiracion.id = 'lblApiKeyExpiracion';
+        lblExpiracion.className = 'text-secondary small';
+        expGroup.appendChild(expLabel);
+        expGroup.appendChild(lblExpiracion);
+
+        const alertWarning = document.createElement('div');
+        alertWarning.id = 'alertApiKeyWarning';
+        alertWarning.className = 'alert alert-warning py-2 px-3 small mb-0';
+        const strongWarn = document.createElement('strong');
+        strongWarn.textContent = 'Advertencia:';
+        alertWarning.appendChild(strongWarn);
+        alertWarning.appendChild(document.createTextNode(' Al regenerar tu API Key mediante '));
+        const codeEndpoint = document.createElement('code');
+        codeEndpoint.textContent = 'POST /api/apikeys/regenerate';
+        alertWarning.appendChild(codeEndpoint);
+        alertWarning.appendChild(
+            document.createTextNode(', la llave anterior quedará invalidada de inmediato en el servidor y se actualizará automáticamente en tu sesión activa.')
+        );
+
+        const alertResultado = document.createElement('div');
+        alertResultado.id = 'alertApiKeyResultado';
+        alertResultado.className = 'alert d-none py-2 px-3 small mb-0 mt-3';
+        alertResultado.setAttribute('role', 'status');
+
+        bodyEl.appendChild(rolGroup);
+        bodyEl.appendChild(keyGroup);
+        bodyEl.appendChild(expGroup);
+        bodyEl.appendChild(alertWarning);
+        bodyEl.appendChild(alertResultado);
+
+        // Footer
+        const footerEl = document.createElement('div');
+        footerEl.className = 'modal-footer';
+
+        const btnCerrar = document.createElement('button');
+        btnCerrar.type = 'button';
+        btnCerrar.className = 'btn btn-secondary btn-sm';
+        btnCerrar.setAttribute('data-bs-dismiss', 'modal');
+        btnCerrar.textContent = 'Cerrar';
+
+        const btnRegenerarFooter = document.createElement('button');
+        btnRegenerarFooter.type = 'button';
+        btnRegenerarFooter.id = 'btnRegenerarApiKey';
+        btnRegenerarFooter.className = 'btn btn-warning btn-sm fw-semibold';
+        btnRegenerarFooter.textContent = 'Regenerar API Key';
+
+        footerEl.appendChild(btnCerrar);
+        footerEl.appendChild(btnRegenerarFooter);
+
+        contentEl.appendChild(headerEl);
+        contentEl.appendChild(bodyEl);
+        contentEl.appendChild(footerEl);
+        dialogEl.appendChild(contentEl);
+        modalEl.appendChild(dialogEl);
+
         document.body.appendChild(modalEl);
     }
 

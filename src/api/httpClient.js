@@ -179,15 +179,32 @@ export function setApiConfig(apiKey, baseUrl = null) {
     }
 }
 
+const SENSITIVE_LOCAL_KEYS = Object.freeze([
+    STORAGE_KEYS.API_KEY,
+    STORAGE_KEYS.AUTH_SESSION,
+    STORAGE_KEYS.AUTH_FLASH_ERROR,
+    'api_key',
+    'apiKey',
+    'auth_token',
+    'token',
+    'user',
+    'session',
+    'password'
+]);
+
 export function clearApiConfig() {
     try {
         if (typeof sessionStorage !== 'undefined') {
             sessionStorage.removeItem(STORAGE_KEYS.API_KEY);
             sessionStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+            sessionStorage.removeItem(STORAGE_KEYS.AUTH_FLASH_ERROR);
+            sessionStorage.removeItem('northwind_discontinued_products');
+            sessionStorage.clear?.();
         }
         if (typeof localStorage !== 'undefined') {
-            localStorage.removeItem(STORAGE_KEYS.API_KEY);
-            localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+            for (const key of SENSITIVE_LOCAL_KEYS) {
+                localStorage.removeItem(key);
+            }
         }
     } catch {
         // Ignore storage errors

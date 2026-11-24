@@ -1,5 +1,26 @@
 import { authService } from "../services/authService.js";
 import { API_BASE_URL, STORAGE_KEYS, getBaseUrl } from "../api/httpClient.js";
+import {
+    getBruteForceState,
+    recordFailedLoginAttempt,
+    resetBruteForceState,
+    isLockedOut,
+    getRemainingLockoutMs,
+    formatCountdown,
+    isCaptchaRequired,
+    markCaptchaSolved,
+    generateCaptchaChallenge,
+    verifyCaptchaAnswer
+} from "../utils/bruteForceProtection.js";
+
+let activeLockoutInterval = null;
+
+function clearActiveLockoutInterval() {
+    if (activeLockoutInterval !== null) {
+        clearInterval(activeLockoutInterval);
+        activeLockoutInterval = null;
+    }
+}
 
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -251,6 +272,7 @@ function resolveActiveRole(sessionResult = null) {
 
 export async function initLoginController(doc = typeof document !== 'undefined' ? document : null) {
     if (!doc) return;
+    clearActiveLockoutInterval();
 
     // 1. Si el usuario ya tiene sesión válida y activa, redirigir según su rol
     let alreadyAuthenticated = false;
@@ -282,6 +304,13 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
     const errLoginPassword = doc.getElementById('errLoginPassword');
     const txtApiUrl = doc.getElementById('txtApiUrl');
     const btnLogin = doc.getElementById('btnLogin');
+    const lockoutBanner = doc.getElementById('lockoutBanner');
+    const lblLockoutCountdown = doc.getElementById('lblLockoutCountdown');
+    const captchaContainer = doc.getElementById('captchaContainer');
+    const lblCaptchaQuestion = doc.getElementById('lblCaptchaQuestion');
+    const txtCaptchaAnswer = doc.getElementById('txtCaptchaAnswer');
+    const btnRefreshCaptcha = doc.getElementById('btnRefreshCaptcha');
+    const errCaptcha = doc.getElementById('errCaptcha');
 
     const formRegister = doc.getElementById('formRegister');
     const txtRegUsername = doc.getElementById('txtRegUsername');
@@ -411,11 +440,143 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
         }
     });
 
+    // 6.5 Protección contra fuerza bruta (REQ-SEC-006): bloqueo temporal y reto CAPTCHA
+    let currentCaptcha = null;
+
+    function setLoginFormDisabled(disabled) {
+        if (txtLoginUsername) txtLoginUsername.disabled = disabled;
+        if (txtLoginPassword) txtLoginPassword.disabled = disabled;
+        if (btnLogin) btnLogin.disabled = disabled;
+    }
+
+    function refreshCaptchaChallenge() {
+        currentCaptcha = generateCaptchaChallenge();
+        if (lblCaptchaQuestion) {
+            lblCaptchaQuestion.textContent = currentCaptcha.question;
+        }
+        if (txtCaptchaAnswer) {
+            txtCaptchaAnswer.value = '';
+            clearFieldValidation(txtCaptchaAnswer);
+        }
+    }
+
+    function showCaptchaUI() {
+        if (captchaContainer) {
+            captchaContainer.classList.remove('d-none');
+        }
+        refreshCaptchaChallenge();
+    }
+
+    function hideCaptchaUI() {
+        currentCaptcha = null;
+        if (captchaContainer) {
+            captchaContainer.classList.add('d-none');
+        }
+        if (lblCaptchaQuestion) {
+            lblCaptchaQuestion.textContent = '';
+        }
+        if (txtCaptchaAnswer) {
+            txtCaptchaAnswer.value = '';
+            clearFieldValidation(txtCaptchaAnswer);
+        }
+    }
+
+    function syncBruteForceUI() {
+        const bfState = getBruteForceState();
+
+        if (bfState.isLockedOut) {
+            setLoginFormDisabled(true);
+            if (lockoutBanner) {
+                lockoutBanner.classList.remove('d-none');
+            }
+            if (lblLockoutCountdown) {
+                lblLockoutCountdown.textContent = formatCountdown(bfState.remainingMs);
+            }
+            hideCaptchaUI();
+
+            clearActiveLockoutInterval();
+            activeLockoutInterval = setInterval(() => {
+                const remaining = getRemainingLockoutMs();
+                if (remaining <= 0) {
+                    clearActiveLockoutInterval();
+                    if (lockoutBanner) {
+                        lockoutBanner.classList.add('d-none');
+                    }
+                    if (lblLockoutCountdown) {
+                        lblLockoutCountdown.textContent = formatCountdown(0);
+                    }
+                    setLoginFormDisabled(false);
+                    if (isCaptchaRequired()) {
+                        showCaptchaUI();
+                    }
+                    return;
+                }
+                if (lblLockoutCountdown) {
+                    lblLockoutCountdown.textContent = formatCountdown(remaining);
+                }
+            }, 1000);
+            activeLockoutInterval.unref?.();
+            return;
+        }
+
+        clearActiveLockoutInterval();
+        if (lockoutBanner) {
+            lockoutBanner.classList.add('d-none');
+        }
+        setLoginFormDisabled(false);
+
+        if (bfState.captchaRequired) {
+            if (!currentCaptcha) {
+                showCaptchaUI();
+            } else if (captchaContainer) {
+                captchaContainer.classList.remove('d-none');
+            }
+        } else {
+            hideCaptchaUI();
+        }
+    }
+
+    btnRefreshCaptcha?.addEventListener('click', () => {
+        refreshCaptchaChallenge();
+    });
+
+    txtCaptchaAnswer?.addEventListener('input', () => {
+        clearFieldValidation(txtCaptchaAnswer);
+    });
+
+    syncBruteForceUI();
+
     // 7. Envío del formulario de Inicio de Sesión
     formLogin?.addEventListener('submit', async (e) => {
         e.preventDefault();
         hideAlert(alertError);
         hideAlert(alertSuccess);
+
+        if (isLockedOut()) {
+            syncBruteForceUI();
+            const remainingText = formatCountdown(getRemainingLockoutMs());
+            showAlert(
+                alertError,
+                `Demasiados intentos fallidos. Acceso bloqueado temporalmente. Intenta nuevamente en ${remainingText}.`
+            );
+            return;
+        }
+
+        const captchaNeeded = isCaptchaRequired();
+        if (captchaNeeded) {
+            if (!currentCaptcha) {
+                showCaptchaUI();
+            }
+            const captchaInput = txtCaptchaAnswer ? txtCaptchaAnswer.value : '';
+            if (!verifyCaptchaAnswer(captchaInput, currentCaptcha?.answer)) {
+                const captchaMsg = 'Respuesta de verificación incorrecta. Resuelve el nuevo reto para continuar.';
+                refreshCaptchaChallenge();
+                setFieldInvalid(txtCaptchaAnswer, errCaptcha, captchaMsg);
+                showAlert(alertError, captchaMsg);
+                return;
+            }
+            clearFieldValidation(txtCaptchaAnswer);
+        }
 
         const username = txtLoginUsername ? txtLoginUsername.value.trim() : '';
         const password = txtLoginPassword ? txtLoginPassword.value : '';
@@ -438,6 +599,11 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
             return;
         }
 
+        if (captchaNeeded) {
+            markCaptchaSolved();
+            hideCaptchaUI();
+        }
+
         clearFieldValidation(txtLoginUsername);
         clearFieldValidation(txtLoginPassword);
 
@@ -448,22 +614,33 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
 
         try {
             const session = await authService.login(username, password, apiUrl);
+            resetBruteForceState();
+            clearActiveLockoutInterval();
             const role = resolveActiveRole(session);
             if (typeof window !== 'undefined' && window.location) {
                 window.location.href = resolveRedirectPath(role);
             }
         } catch (error) {
+            const status = Number(error?.status || error?.problemDetails?.status) || 0;
             const friendlyMsg = extractProblemMessage(
                 error,
                 'No fue posible iniciar sesión. Verifica tus credenciales o la conexión con el servidor.'
             );
             setFieldInvalid(txtLoginUsername, errLoginUsername, friendlyMsg);
             setFieldInvalid(txtLoginPassword, errLoginPassword, friendlyMsg);
+
+            if (status === 401) {
+                const bfState = recordFailedLoginAttempt();
+                if (bfState.isLockedOut) {
+                    syncBruteForceUI();
+                }
+            }
+
             showAlert(alertError, friendlyMsg);
         } finally {
             if (btnLogin) {
-                btnLogin.disabled = false;
                 btnLogin.textContent = 'Iniciar Sesión';
+                btnLogin.disabled = isLockedOut();
             }
         }
     });
