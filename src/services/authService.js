@@ -27,7 +27,10 @@ const SENSITIVE_LOCAL_KEYS = Object.freeze([
     'api_key',
     'apiKey',
     'auth_token',
-    'token'
+    'token',
+    'user',
+    'session',
+    'password'
 ]);
 
 let inMemorySession = null;
@@ -525,6 +528,14 @@ export const authService = {
         inMemorySession = null;
         clearApiConfig();
         purgeResidualLocalStorage();
+
+        try {
+            if (typeof sessionStorage !== 'undefined') {
+                sessionStorage.clear?.();
+            }
+        } catch {
+            // Ignore storage errors in restricted environments
+        }
 
         if (typeof window !== 'undefined' && window.location) {
             if (reason && typeof reason === 'string' && reason.trim() !== '') {

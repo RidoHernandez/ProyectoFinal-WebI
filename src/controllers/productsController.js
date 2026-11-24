@@ -2,7 +2,7 @@ import { authGuard } from "../utils/authGuard.js";
 import { authService } from "../services/authService.js";
 import { productService } from "../services/productService.js";
 import { ProductModel, validateProduct } from "../models/productModel.js";
-import { baseTableOptions, escapeHtml, formatCurrency, initNavbar, resolveConnectedRole } from "../utils/tableHelpers.js";
+import { baseTableOptions, clearTbody, escapeHtml, formatCurrency, initNavbar, resolveConnectedRole, safeTextRender } from "../utils/tableHelpers.js";
 
 // Guardia de navegación síncrona como primera instrucción ejecutable (TASK-F2-04 / TASK-F3-03)
 authGuard(['ADMIN', 'EMPLEADO']);
@@ -373,80 +373,85 @@ export function renderizarTablaFallback(lista = productosCache, rol = rolActual)
     if (!tbody) return;
 
     const items = Array.isArray(lista) ? lista : [];
-    if (Array.isArray(tbody.children)) {
-        tbody.children.length = 0;
-        tbody.innerHTML = '';
-    } else {
-        tbody.textContent = '';
-    }
+    const esAdmin = String(rol || '').toUpperCase() === 'ADMIN';
+    clearTbody(tbody);
 
-    const htmlRows = items.map((prod) => {
+    if (typeof doc.createElement !== 'function') return;
+
+    for (const prod of items) {
         const id = prod?.productId ?? prod?.ProductId ?? '';
         const name = prod?.productName ?? prod?.ProductName ?? '';
         const price = prod?.unitPrice ?? prod?.UnitPrice ?? 0;
         const stock = prod?.unitsInStock ?? prod?.UnitsInStock ?? 0;
         const disc = Boolean(prod?.discontinued ?? prod?.Discontinued);
 
-        const estadoBadge = disc
-            ? '<span class="badge bg-danger">Descontinuado</span>'
-            : '<span class="badge bg-success">Activo</span>';
-        const accionesHtml = renderAccionesProducto(
-            { productId: id, productName: name, unitPrice: price, unitsInStock: stock, discontinued: disc },
-            rol
-        );
+        const tr = doc.createElement('tr');
+        if (tr.dataset) {
+            tr.dataset.productId = String(id);
+        }
+        tr.setAttribute?.('data-product-id', String(id));
 
-        if (typeof doc.createElement === 'function') {
-            const tr = doc.createElement('tr');
-            if (tr.dataset) {
-                tr.dataset.productId = String(id);
+        const tdId = doc.createElement('td');
+        const strongId = doc.createElement('strong');
+        strongId.textContent = String(id);
+        tdId.appendChild(strongId);
+
+        const tdName = doc.createElement('td');
+        tdName.textContent = String(name);
+
+        const tdPrice = doc.createElement('td');
+        tdPrice.textContent = formatCurrency(price);
+
+        const tdStock = doc.createElement('td');
+        tdStock.textContent = String(stock);
+
+        const tdStatus = doc.createElement('td');
+        const spanBadge = doc.createElement('span');
+        spanBadge.className = disc ? 'badge bg-danger' : 'badge bg-success';
+        spanBadge.textContent = disc ? 'Descontinuado' : 'Activo';
+        tdStatus.appendChild(spanBadge);
+
+        const tdActions = doc.createElement('td');
+        tdActions.className = 'text-center text-nowrap';
+
+        const btnEditar = doc.createElement('button');
+        btnEditar.type = 'button';
+        btnEditar.className = `btn btn-sm btn-outline-primary${esAdmin ? ' me-1' : ''}`;
+        btnEditar.setAttribute('data-action', 'editar');
+        btnEditar.setAttribute('data-id', String(id));
+        btnEditar.textContent = 'Editar';
+        tdActions.appendChild(btnEditar);
+
+        if (esAdmin) {
+            const btnDescontinuar = doc.createElement('button');
+            btnDescontinuar.type = 'button';
+            btnDescontinuar.className = `btn btn-sm ${disc ? 'btn-secondary' : 'btn-outline-warning'} me-1`;
+            btnDescontinuar.setAttribute('data-action', 'descontinuar');
+            btnDescontinuar.setAttribute('data-id', String(id));
+            if (disc) {
+                btnDescontinuar.disabled = true;
+                btnDescontinuar.setAttribute('disabled', 'disabled');
             }
-            tr.setAttribute?.('data-product-id', String(id));
+            btnDescontinuar.textContent = disc ? 'Descontinuado' : 'Descontinuar';
+            tdActions.appendChild(btnDescontinuar);
 
-            const tdId = doc.createElement('td');
-            const strongId = doc.createElement('strong');
-            strongId.textContent = String(id);
-            tdId.appendChild(strongId);
-            if (!tdId.innerHTML) {
-                tdId.innerHTML = `<strong>${escapeHtml(id)}</strong>`;
-            }
-
-            const tdName = doc.createElement('td');
-            tdName.textContent = String(name);
-
-            const tdPrice = doc.createElement('td');
-            tdPrice.textContent = formatCurrency(price);
-
-            const tdStock = doc.createElement('td');
-            tdStock.textContent = String(stock);
-
-            const tdStatus = doc.createElement('td');
-            const spanBadge = doc.createElement('span');
-            spanBadge.className = disc ? 'badge bg-danger' : 'badge bg-success';
-            spanBadge.textContent = disc ? 'Descontinuado' : 'Activo';
-            tdStatus.appendChild(spanBadge);
-            if (!tdStatus.innerHTML) {
-                tdStatus.innerHTML = estadoBadge;
-            }
-
-            const tdActions = doc.createElement('td');
-            tdActions.className = 'text-center text-nowrap';
-            tdActions.innerHTML = accionesHtml;
-
-            tr.appendChild(tdId);
-            tr.appendChild(tdName);
-            tr.appendChild(tdPrice);
-            tr.appendChild(tdStock);
-            tr.appendChild(tdStatus);
-            tr.appendChild(tdActions);
-
-            tbody.appendChild(tr);
+            const btnEliminar = doc.createElement('button');
+            btnEliminar.type = 'button';
+            btnEliminar.className = 'btn btn-sm btn-outline-danger';
+            btnEliminar.setAttribute('data-action', 'eliminar');
+            btnEliminar.setAttribute('data-id', String(id));
+            btnEliminar.textContent = 'Eliminar';
+            tdActions.appendChild(btnEliminar);
         }
 
-        return `<tr data-product-id="${escapeHtml(id)}"><td><strong>${escapeHtml(id)}</strong></td><td>${escapeHtml(name)}</td><td>${escapeHtml(formatCurrency(price))}</td><td>${escapeHtml(stock)}</td><td>${estadoBadge}</td><td class="text-center text-nowrap">${accionesHtml}</td></tr>`;
-    });
+        tr.appendChild(tdId);
+        tr.appendChild(tdName);
+        tr.appendChild(tdPrice);
+        tr.appendChild(tdStock);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdActions);
 
-    if (!tbody.innerHTML) {
-        tbody.innerHTML = htmlRows.join('');
+        tbody.appendChild(tr);
     }
 }
 
@@ -1085,7 +1090,7 @@ function inicializarTabla() {
         order: [[0, 'asc']],
         columns: [
             { data: 'productId', render: display((d) => `<strong>${escapeHtml(d)}</strong>`) },
-            { data: 'productName', render: display((d) => escapeHtml(d)) },
+            { data: 'productName', render: safeTextRender('-') },
             {
                 data: 'unitPrice',
                 defaultContent: 0,

@@ -1,7 +1,7 @@
 import { authGuard } from "../utils/authGuard.js";
 import { authService } from "../services/authService.js";
 import { productService } from "../services/productService.js";
-import { formatCurrency, escapeHtml, initNavbar } from "../utils/tableHelpers.js";
+import { clearTbody, formatCurrency, escapeHtml, initNavbar } from "../utils/tableHelpers.js";
 
 // Guardia de navegación síncrona como primera instrucción ejecutable (TASK-F2-04 / TASK-F3-06)
 authGuard(['ADMIN', 'EMPLEADO', 'CLIENTE']);
@@ -114,11 +114,7 @@ export function renderizarTarjetas(lista, doc = typeof document !== 'undefined' 
         lblContador.textContent = `${items.length} producto(s)`;
     }
 
-    if (Array.isArray(contenedor.children)) {
-        contenedor.children.length = 0;
-        contenedor.innerHTML = '';
-    }
-    contenedor.textContent = '';
+    clearTbody(contenedor);
 
     if (items.length === 0) {
         const emptyHtml = '<div class="col-12"><div class="alert alert-info mb-0">No hay productos disponibles con los criterios seleccionados.</div></div>';
@@ -130,9 +126,6 @@ export function renderizarTarjetas(lista, doc = typeof document !== 'undefined' 
             alertEmpty.textContent = 'No hay productos disponibles con los criterios seleccionados.';
             colEmpty.appendChild(alertEmpty);
             contenedor.appendChild(colEmpty);
-        }
-        if (!contenedor.innerHTML) {
-            contenedor.innerHTML = emptyHtml;
         }
         return emptyHtml;
     }
@@ -237,19 +230,11 @@ export function renderizarTarjetas(lista, doc = typeof document !== 'undefined' 
             bodyEl.appendChild(footerEl);
             cardEl.appendChild(bodyEl);
             colEl.appendChild(cardEl);
-
-            if (!colEl.innerHTML) {
-                colEl.innerHTML = cardHtml;
-            }
             contenedor.appendChild(colEl);
         }
     }
 
     const joinedHtml = htmlCards.join('');
-    if (!contenedor.innerHTML) {
-        contenedor.innerHTML = joinedHtml;
-    }
-
     return joinedHtml;
 }
 
@@ -356,12 +341,7 @@ export async function cargarCatalogo(doc = typeof document !== 'undefined' ? doc
     } catch (err) {
         console.warn("Aviso al cargar catálogo:", err?.message || err);
         if (contenedor) {
-            if (Array.isArray(contenedor.children)) {
-                contenedor.children.length = 0;
-                contenedor.innerHTML = '';
-            }
-            contenedor.textContent = '';
-            const warnHtml = '<div class="col-12"><div class="alert alert-warning mb-0">No se pudieron cargar los productos.</div></div>';
+            clearTbody(contenedor);
             if (doc && typeof doc.createElement === 'function') {
                 const colWarn = doc.createElement('div');
                 colWarn.className = 'col-12';
@@ -370,9 +350,6 @@ export async function cargarCatalogo(doc = typeof document !== 'undefined' ? doc
                 alertWarn.textContent = 'No se pudieron cargar los productos.';
                 colWarn.appendChild(alertWarn);
                 contenedor.appendChild(colWarn);
-            }
-            if (!contenedor.innerHTML) {
-                contenedor.innerHTML = warnHtml;
             }
         }
         return [];

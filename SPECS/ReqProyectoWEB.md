@@ -1,7 +1,7 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
-version: 1.4.0
-estado_global: IN_PROGRESS
+version: 1.5.0
+estado_global: DONE
 ultima_actualizacion: 2026-11-24
 formato_agente: AI-READABLE-SPEC-V1
 backend_status: FROZEN_LOCKED
@@ -26,8 +26,8 @@ Este documento esta estructurado para ser analizado y actualizado de forma deter
 | Autenticacion y Roles | AUTH | 3 | 3 | 0 | 0 | 100% |
 | Gestion Comercial y Clientes | CORE | 2 | 2 | 0 | 0 | 100% |
 | Reglas de Negocio | BIZ | 3 | 3 | 0 | 0 | 100% |
-| Seguridad y Control de Acceso | SEC | 6 | 3 | 3 | 0 | 75% |
-| **TOTAL** | **ALL** | **14** | **11** | **3** | **0** | **89%** |
+| Seguridad y Control de Acceso | SEC | 6 | 6 | 0 | 0 | 100% |
+| **TOTAL** | **ALL** | **14** | **14** | **0** | **0** | **100%** |
 
 ---
 
@@ -291,31 +291,31 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
   * - [x] **[Backend]** `AuthResponseDto` expone unicamente identificador, nombre y API Key generada (nunca retorna PasswordHash).
 
 #### [REQ-SEC-004] Proteccion contra Clickjacking
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
 * **Descripcion:** Impedir que las vistas de la aplicacion sean incrustadas dentro de elementos `<iframe>`, `<frame>` u `<object>` en sitios de terceros.
 * **Criterios de Aceptacion:**
-  * - [ ] **[Frontend]** Insercion de directiva meta `Content-Security-Policy: frame-ancestors 'none';` en los encabezados HTML de todas las vistas del proyecto.
-  * - [ ] **[Frontend]** Script defensivo de ruptura de marcos (frame-busting script) en el encabezado comun de la aplicacion para mitigar incrustaciones no autorizadas.
+  * - [x] **[Frontend]** Insercion de directiva meta `Content-Security-Policy: frame-ancestors 'none';` en los encabezados HTML de todas las vistas del proyecto.
+  * - [x] **[Frontend]** Script defensivo de ruptura de marcos (frame-busting script) en el encabezado comun de la aplicacion para mitigar incrustaciones no autorizadas.
 
 #### [REQ-SEC-005] Sanitizacion de Entradas, Prevencion de XSS y Almacenamiento Seguro
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Critica
 * **Descripcion:** Neutralizar codigo malicioso inyectado por usuarios y asegurar el almacenamiento temporal de las credenciales de sesion.
 * **Criterios de Aceptacion:**
-  * - [ ] **[Frontend]** Reemplazo de inserciones de riesgo `innerHTML` por asignaciones seguras `textContent` y construccion controlada de nodos DOM.
+  * - [x] **[Frontend]** Reemplazo de inserciones de riesgo `innerHTML` por asignaciones seguras `textContent` y construccion controlada de nodos DOM.
   * - [x] **[Frontend]** Migracion completa del almacenamiento de API Key y perfil desde `localStorage` a `sessionStorage` para limitar la exposicion al ciclo de vida de la pestana.
   * - [x] **[Frontend]** Limpieza integral de `sessionStorage` en el evento de cierre de sesion (`logout`).
 
 #### [REQ-SEC-006] Proteccion contra Fuerza Bruta (Control de Intentos en Frontend)
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Descripcion:** Mitigar ataques automatizados de adivinacion de credenciales en el inicio de sesion mediante bloqueo progresivo en cliente tras 3 intentos fallidos consecutivos.
 * **Criterios de Aceptacion:**
-  * - [ ] **[Frontend]** Contador de intentos fallidos persistente en `localStorage`/`sessionStorage` ante respuestas HTTP 401.
-  * - [ ] **[Frontend]** Bloqueo automatico del formulario y boton de login durante 15 minutos al alcanzar 3 intentos fallidos.
-  * - [ ] **[Frontend]** Renderizado de cronometro interactivo que indique el tiempo restante de bloqueo y prevenga el envio de nuevas solicitudes.
-  * - [ ] **[Frontend]** Desafio interactivo de verificacion (reto captcha en cliente) antes de reanudar el formulario una vez expirado el tiempo de bloqueo.
+  * - [x] **[Frontend]** Contador de intentos fallidos persistente en `localStorage`/`sessionStorage` ante respuestas HTTP 401.
+  * - [x] **[Frontend]** Bloqueo automatico del formulario y boton de login durante 15 minutos al alcanzar 3 intentos fallidos.
+  * - [x] **[Frontend]** Renderizado de cronometro interactivo que indique el tiempo restante de bloqueo y prevenga el envio de nuevas solicitudes.
+  * - [x] **[Frontend]** Desafio interactivo de verificacion (reto captcha en cliente) antes de reanudar el formulario una vez expirado el tiempo de bloqueo.
 
 ---
 
@@ -345,3 +345,4 @@ Para incorporar un nuevo requisito, agrega el siguiente bloque en el modulo corr
 | 2026-11-23 | @verifier | REQ-AUTH-001, REQ-AUTH-002, REQ-AUTH-003, REQ-BIZ-002, REQ-SEC-001, REQ-SEC-005 | Verificacion y cierre de requisitos de Fase 2 (100% de pruebas en `tests/fase1.test.mjs` y `tests/fase2.test.mjs`): autenticacion exclusiva mediante `/api/auth/login` y `/api/auth/register` (eliminando uso de llave maestra estatica en frontend), mapeo RBAC determinista (`ADMIN`, `EMPLEADO` con whitelist y prefijo `emp_*`, `CLIENTE`) con firma de integridad en `sessionStorage`, guardias `authGuard.js` en todas las vistas protegidas de `src/views/`, adaptacion dinamica de interfaz, y regeneracion de API Keys en caliente. |
 | 2026-11-23 | @verifier-f3 | REQ-AUTH-001, REQ-AUTH-002, REQ-CORE-001, REQ-BIZ-001, REQ-BIZ-002, REQ-BIZ-003, REQ-SEC-002, REQ-SEC-003 | Verificacion y cierre de criterios de Fase 3 (21/21 pruebas automatizadas en `tests/fase1.test.mjs`, `tests/fase2.test.mjs` y `tests/fase3.test.mjs`): refactorizacion de `productService.js` (`ProductsSummaryDto`, CRUD completo y `discontinue`), validaciones de cotas exactas y prevencion de duplicados en `productModel.js`, vista administrativa RBAC en `src/views/productos.html` y `src/controllers/productsController.js` (modal unificado Crear/Editar, edicion restringida a precio y existencias para `EMPLEADO`, politica de descontinuacion logica y captura de HTTP `409 Conflict` con mensaje de integridad historica y accion rapida), y vista de catalogo comercial de solo lectura con filtros en tiempo real e indicador de productos agotados en `src/views/catalogo.html` y `src/controllers/catalogController.js`. |
 | 2026-11-24 | Antigravity | REQ-CORE-001, REQ-CORE-002, REQ-SEC-003 | Cierre de criterios de Fase 4 (`TASK-F4-01` a `TASK-F4-04`) con 28/28 pruebas pasando en `tests/fase1.test.mjs` a `tests/fase4.test.mjs`: modelos y servicios de solo lectura (`customerModel.js`, `customerService.js`, `orderModel.js`, `orderService.js`) con validacion anti-traversal y minimizacion estricta DTO, vistas anti-clickjacking y de solo lectura (`clientes.html`, `ordenes.html`, `pedidos.html`), y controladores RBAC anti-XSS (`customersController.js`, `ordersController.js`) con modal de detalle de cliente, modal logístico/postal de orden y aislamiento/busqueda por N° de orden para `CLIENTE`. |
+| 2026-11-24 | @verifier | REQ-SEC-004, REQ-SEC-005, REQ-SEC-006 | Cierre al 100% de Fase 5 y del proyecto (14/14 requisitos `[DONE]`, 28/28 pruebas existentes pasando en `tests/fase1.test.mjs` a `tests/fase4.test.mjs`): proteccion contra clickjacking (`frame-ancestors 'none'` + `window.top !== window.self`) en todas las vistas `src/views/*.html`; prevencion XSS (`src/utils/securityUtils.js` y 0 usos de `innerHTML` en `src/`) e higiene completa de `sessionStorage`/`localStorage` en `httpClient.js` y `authService.js`; proteccion contra fuerza bruta en `src/utils/bruteForceProtection.js`, `src/views/login.html` y `src/controllers/loginController.js` (3 intentos HTTP 401, bloqueo de 15 min persistente ante F5, cronometro MM:SS y reto CAPTCHA); y auditoria estatica limpia sin endpoints inexistentes ni rutas rotas. |

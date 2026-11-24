@@ -1,11 +1,11 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
 documento: Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
-version: 1.4.0
-estado_global: IN_PROGRESS
+version: 1.5.0
+estado_global: DONE
 ultima_actualizacion: 2026-11-24
 formato_agente: AI-READABLE-TASKS-V1
-referencia_spec: ReqProyectoWEB.md (v1.3.0)
+referencia_spec: ReqProyectoWEB.md (v1.5.0)
 backend_status: FROZEN_LOCKED
 ---
 
@@ -32,8 +32,8 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | **Fase 2** | Autenticacion, registro y control de roles | 7 | 7 | 0 | 0 | 100% |
 | **Fase 3** | Gestion de productos y catalogo | 6 | 6 | 0 | 0 | 100% |
 | **Fase 4** | Consulta de clientes y ordenes | 4 | 4 | 0 | 0 | 100% |
-| **Fase 5** | Seguridad en cliente, validaciones Vanilla y buenas practicas | 5 | 0 | 1 | 4 | 15% |
-| **TOTAL** | **Consolidado del Proyecto** | **26** | **21** | **1** | **4** | **81%** |
+| **Fase 5** | Seguridad en cliente, validaciones Vanilla y buenas practicas | 5 | 5 | 0 | 0 | 100% |
+| **TOTAL** | **Consolidado del Proyecto** | **26** | **26** | **0** | **0** | **100%** |
 
 ---
 
@@ -331,40 +331,40 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 ### FASE 5: Seguridad en Cliente, Validaciones Vanilla y Buenas Practicas
 
 #### [TASK-F5-01] Proteccion contra Fuerza Bruta en Formulario de Login (`bruteForceProtection.js`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Archivos Afectados:** `src/utils/bruteForceProtection.js`, `src/controllers/loginController.js`
 * **Requisitos:** `REQ-SEC-006`
 * **Descripcion:** Prevenir ataques automatizados de diccionario o fuerza bruta bloqueando temporalmente el formulario de acceso tras 3 intentos fallidos consecutivos.
 * **Criterios de Aceptacion:**
-  * - [ ] Contabilizar intentos fallidos de autenticacion (errores HTTP 401 de `/api/auth/login`).
-  * - [ ] Al alcanzar 3 intentos fallidos consecutivos, registrar timestamp de bloqueo por 15 minutos (`Date.now() + 15 * 60 * 1000`) en almacenamiento del navegador.
-  * - [ ] Deshabilitar campos de texto y boton de login mientras el bloqueo este activo.
-  * - [ ] Renderizar cronometro con cuenta regresiva visible (minutos y segundos).
-  * - [ ] Persistir el estado de bloqueo ante recargas de pagina (F5).
-  * - [ ] Incorporar un desafio interactivo de confirmacion humana (captcha en cliente) que deba resolverse antes de poder reintentar tras cumplirse los 15 minutos.
+  * - [x] Contabilizar intentos fallidos de autenticacion (errores HTTP 401 de `/api/auth/login`).
+  * - [x] Al alcanzar 3 intentos fallidos consecutivos, registrar timestamp de bloqueo por 15 minutos (`Date.now() + 15 * 60 * 1000`) en almacenamiento del navegador.
+  * - [x] Deshabilitar campos de texto y boton de login mientras el bloqueo este activo.
+  * - [x] Renderizar cronometro con cuenta regresiva visible (minutos y segundos).
+  * - [x] Persistir el estado de bloqueo ante recargas de pagina (F5).
+  * - [x] Incorporar un desafio interactivo de confirmacion humana (captcha en cliente) que deba resolverse antes de poder reintentar tras cumplirse los 15 minutos.
 
 #### [TASK-F5-02] Prevencion de Vulnerabilidades XSS y Manipulacion Segura del DOM (`securityUtils.js`)
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Critica
 * **Archivos Afectados:** `src/utils/securityUtils.js`, todos los controladores y vistas
 * **Requisitos:** `REQ-SEC-005`
 * **Descripcion:** Erradicar cualquier uso riesgoso de `innerHTML` con datos provenientes de la API o entradas de usuario para prevenir ejecucion de script malicioso (Cross-Site Scripting).
 * **Criterios de Aceptacion:**
-  * - [ ] Crear modulo utilitario `securityUtils.js` con funcion de escape: `escapeHtml(string)`.
-  * - [ ] Auditar todas las vistas y controladores para asegurar que los datos dinamicos se rendericen mediante `textContent`, `document.createElement`, o celdas escapadas.
-  * - [ ] En tablas dinamicas (DataTables), configurar la funcion de renderizado seguro de texto `DataTable.render.text()` en todas las columnas de texto.
+  * - [x] Crear modulo utilitario `securityUtils.js` con funcion de escape: `escapeHtml(string)`.
+  * - [x] Auditar todas las vistas y controladores para asegurar que los datos dinamicos se rendericen mediante `textContent`, `document.createElement`, o celdas escapadas.
+  * - [x] En tablas dinamicas (DataTables), configurar la funcion de renderizado seguro de texto `DataTable.render.text()` en todas las columnas de texto.
 
 #### [TASK-F5-03] Proteccion Defensiva contra Clickjacking (Frame-Busting y CSP)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
 * **Archivos Afectados:** Todas las paginas HTML (`login.html`, `productos.html`, `catalogo.html`, `clientes.html`, `ordenes.html`)
 * **Requisitos:** `REQ-SEC-004`
 * **Descripcion:** Mitigar el riesgo de ataques de clickjacking impidiendo la carga de las vistas de la aplicacion dentro de marcos externos (`<iframe>`, `<frame>`, `<object>`).
 * **Criterios de Aceptacion:**
-  * - [ ] Incorporar etiqueta meta de directiva CSP en el `<head>` de cada archivo HTML:
+  * - [x] Incorporar etiqueta meta de directiva CSP en el `<head>` de cada archivo HTML:
     `<meta http-equiv="Content-Security-Policy" content="frame-ancestors 'none';">`.
-  * - [ ] Incorporar script defensivo de ruptura de marcos (*frame-busting script*) en el `<head>`:
+  * - [x] Incorporar script defensivo de ruptura de marcos (*frame-busting script*) en el `<head>`:
     ```javascript
     if (window.top !== window.self) {
       window.top.location = window.self.location;
@@ -372,27 +372,27 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
     ```
 
 #### [TASK-F5-04] Higiene de Almacenamiento y Cierre de Sesion Seguro
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Archivos Afectados:** `src/services/authService.js`, `src/api/httpClient.js`
 * **Requisitos:** `REQ-SEC-005`, `REQ-AUTH-001`
 * **Descripcion:** Garantizar que ninguna credencial quede expuesta mas alla del ciclo de vida intencional de la sesion del navegador.
 * **Criterios de Aceptacion:**
-  * - [ ] Confirmar que `sessionStorage` almacena unicamente la sesion activa y se destruye al cerrar la pestana o invocar `logout()`.
-  * - [ ] Confirmar que `localStorage` no guarda API Keys, tokens, hashes ni datos sensibles de usuario.
-  * - [ ] En el evento `logout()`, limpiar de forma explicita tanto `sessionStorage` como variables en memoria antes de redirigir.
+  * - [x] Confirmar que `sessionStorage` almacena unicamente la sesion activa y se destruye al cerrar la pestana o invocar `logout()`.
+  * - [x] Confirmar que `localStorage` no guarda API Keys, tokens, hashes ni datos sensibles de usuario.
+  * - [x] En el evento `logout()`, limpiar de forma explicita tanto `sessionStorage` como variables en memoria antes de redirigir.
 
 #### [TASK-F5-05] Auditoria de Integridad del Backend Congelado y Control de Calidad
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Critica
 * **Archivos Afectados:** `c:\Proyectos\Web II\API-KEY_AUTH`, `c:\Proyectos\Web II\Final`
 * **Requisitos:** `REQ-BIZ-001`, `REQ-SEC-001`, `REQ-SEC-003`
 * **Descripcion:** Verificar que todo el proyecto opere armonicamente sin haber alterado ningun byte del backend congelado.
 * **Criterios de Aceptacion:**
-  * - [ ] Comprobar que en `c:\Proyectos\Web II\API-KEY_AUTH` no exista ningun cambio (git status limpio o fecha de modificacion inalterada).
-  * - [ ] Verificar ausencia de llamadas huérfanas a endpoints inexistentes (ej. `/api/categories`, `/api/suppliers`, `/api/employees`).
-  * - [ ] Validar que todas las vistas carguen correctamente en el navegador via ES Modules sin errores de importacion ni referencias rotas.
-  * - [ ] Confirmar que los criterios de aceptacion de `ReqProyectoWEB.md` se encuentren alineados con las tareas completadas.
+  * - [x] Comprobar que en `c:\Proyectos\Web II\API-KEY_AUTH` no exista ningun cambio (git status limpio o fecha de modificacion inalterada).
+  * - [x] Verificar ausencia de llamadas huérfanas a endpoints inexistentes (ej. `/api/categories`, `/api/suppliers`, `/api/employees`).
+  * - [x] Validar que todas las vistas carguen correctamente en el navegador via ES Modules sin errores de importacion ni referencias rotas.
+  * - [x] Confirmar que los criterios de aceptacion de `ReqProyectoWEB.md` se encuentren alineados con las tareas completadas.
 
 ---
 
@@ -404,3 +404,4 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | 2026-11-23 | @verifier | 1.2.0 | Completada y verificada al 100% la Fase 2 (`TASK-F2-01` a `TASK-F2-07`): implementacion de `authService.js` (`login`, `register`, `regenerateApiKey`, `logout`, utilidades RBAC y firma de integridad en `sessionStorage`), eliminacion de la llave maestra estatica en frontend, creacion de `authGuard.js` e integracion en controladores y vistas de `src/views/`, interfaz dual de login/registro en `src/views/login.html` y `loginController.js`, adaptacion dinamica de navbar y modal de regeneracion de API Key en `tableHelpers.js`, y suite de pruebas automatizadas (`tests/fase1.test.mjs` y `tests/fase2.test.mjs`, 15/15 tests pasando). |
 | 2026-11-23 | @verifier-f3 | 1.3.0 | Completada y verificada al 100% la Fase 3 (`TASK-F3-01` a `TASK-F3-06`): refactorizacion de `productService.js` (`getAll`, `getSummary`, `getById`, `create`, `update`, `delete`, `discontinue`), validaciones y cotas exactas en `productModel.js` (`validateProduct`, `PRODUCT_CONSTRAINTS`, prevencion de duplicados), vista administrativa RBAC y modal unificado en `src/views/productos.html` y `src/controllers/productsController.js` (restriccion de edicion de precio/stock para `EMPLEADO`, politica de descontinuacion y modal 409 Conflict con accion rapida), vista de catalogo comercial de solo lectura con filtros en tiempo real e indicador de agotados en `src/views/catalogo.html` y `src/controllers/catalogController.js`, y suite de pruebas automatizadas (`tests/fase1.test.mjs`, `tests/fase2.test.mjs`, `tests/fase3.test.mjs`, 21/21 tests pasando). |
 | 2026-11-24 | Antigravity | 1.4.0 | Completada y verificada al 100% la Fase 4 (`TASK-F4-01` a `TASK-F4-04`): utilidades transversales seguras en `src/utils/tableHelpers.js` (`formatDate`, `safeTextRender`, `extractProblemMessage`, `showModal`, `hideModal`, `bindModalDismiss`, `clearTbody`), modelos y servicios estrictamente de solo lectura (`Object.freeze`) con minimizacion DTO y validacion anti-traversal en `src/models/customerModel.js`, `src/services/customerService.js`, `src/models/orderModel.js` y `src/services/orderService.js`, vistas protegidas contra clickjacking (`clientes.html`, `ordenes.html`, `pedidos.html` sincronizadas), controladores RBAC anti-XSS sin `innerHTML` con datos de API (`src/controllers/customersController.js`, `src/controllers/ordersController.js`) con aislamiento y busqueda por N° de orden para `CLIENTE`, y suite `tests/fase4.test.mjs`. |
+| 2026-11-24 | @verifier | 1.5.0 | Completada y verificada al 100% la Fase 5 (`TASK-F5-01` a `TASK-F5-05`, proyecto consolidado 26/26): proteccion contra fuerza bruta en `src/utils/bruteForceProtection.js` e integracion con bloqueo de 15 min, cronometro persistente ante F5 y reto CAPTCHA en `src/views/login.html` y `src/controllers/loginController.js`; utilidades anti-XSS `src/utils/securityUtils.js` (`escapeHtml`, `sanitizeText`, `setSafeText`) y erradicacion total de `innerHTML` en `src/` (0 usos); proteccion anti-clickjacking (`frame-ancestors 'none'` y `window.top !== window.self`) en todas las vistas `src/views/*.html`; higiene de `sessionStorage`/`localStorage` y `logout()` seguro en `src/api/httpClient.js` y `src/services/authService.js`; auditoria estatica (0 endpoints inexistentes, 0 rutas rotas, importacion limpia de modulos ES) y suite existente 28/28 pasando (`tests/fase1.test.mjs` a `tests/fase4.test.mjs`). |
