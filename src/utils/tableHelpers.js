@@ -12,6 +12,116 @@ export function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+// Renderizador seguro para columnas de texto en DataTables (DataTable.render.text() + respaldo escapeHtml)
+export function safeTextRender(fallback = '-') {
+    return (data, type) => {
+        const isEmpty = data === null || data === undefined || String(data).trim() === '';
+        const raw = isEmpty ? fallback : String(data);
+        if (type !== 'display') {
+            return raw;
+        }
+        if (typeof DataTable !== 'undefined' && DataTable.render && typeof DataTable.render.text === 'function') {
+            const renderer = DataTable.render.text();
+            if (renderer && typeof renderer.display === 'function') {
+                return renderer.display(raw);
+            }
+            if (typeof renderer === 'function') {
+                return renderer(raw, type);
+            }
+        }
+        return escapeHtml(raw);
+    };
+}
+
+// Formatea fechas ISO o YYYY-MM-DD de forma segura en español (es-MX)
+export function formatDate(value, fallback = 'N/A') {
+    if (value === null || value === undefined) return fallback;
+    const raw = typeof value === 'string' ? value.trim() : value;
+    if (raw === '') return fallback;
+
+    let dateObj = null;
+    if (typeof raw === 'string') {
+        const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+        if (dateOnlyMatch) {
+            const year = Number(dateOnlyMatch[1]);
+            const month = Number(dateOnlyMatch[2]);
+            const day = Number(dateOnlyMatch[3]);
+            const candidate = new Date(year, month - 1, day);
+            if (
+                candidate.getFullYear() === year &&
+                candidate.getMonth() === month - 1 &&
+                candidate.getDate() === day
+            ) {
+                dateObj = candidate;
+            }
+        }
+    }
+
+    if (!dateObj) {
+        const parsed = raw instanceof Date ? raw.getTime() : Date.parse(raw);
+        if (Number.isNaN(parsed)) return fallback;
+        dateObj = new Date(parsed);
+    }
+
+    try {
+        return dateObj.toLocaleDateString('es-MX', {
+            year: 'numeric',
+            month: 'short',
+            day: '2-digit'
+        });
+    } catch {
+        return dateObj.toISOString().slice(0, 10);
+    }
+}
+
+const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+)/i;
+const GENERIC_HTTP_REASONS = new Set([
+    'bad request',
+    'unauthorized',
+    'forbidden',
+    'not found',
+    'conflict',
+    'internal server error'
+]);
+
+function pickSafeMessage(text) {
+    if (!text || typeof text !== 'string') return '';
+    const trimmed = text.trim();
+    if (!trimmed || SENSITIVE_ERROR_PATTERN.test(trimmed)) return '';
+    if (GENERIC_HTTP_REASONS.has(trimmed.toLowerCase())) return '';
+    return trimmed;
+}
+
+// Extrae mensajes seguros desde ApiError / ProblemDetails (RFC 7807)
+export function extractProblemMessage(error, fallback = 'Ocurrió un error al procesar la solicitud.') {
+    if (!error) return fallback;
+
+    const pd = error.problemDetails || error;
+    const status = Number(pd?.status || error?.status) || 0;
+    if (status >= 500) {
+        return 'Ocurrió un error interno en el servidor. Intenta nuevamente más tarde.';
+    }
+
+    const rawErrors = pd?.errors || error?.errors || null;
+    if (rawErrors && typeof rawErrors === 'object') {
+        const firstFieldMsg = Object.values(rawErrors)
+            .flat()
+            .map((msg) => pickSafeMessage(String(msg ?? '')))
+            .find(Boolean);
+        if (firstFieldMsg) return firstFieldMsg;
+    }
+
+    return (
+        pickSafeMessage(pd?.detail) ||
+        pickSafeMessage(error?.detail) ||
+        pickSafeMessage(pd?.message) ||
+        pickSafeMessage(error?.message) ||
+        pickSafeMessage(pd?.title) ||
+        pickSafeMessage(error?.title) ||
+        fallback
+    );
+}
+
 // Formatea un número como moneda USD
 export function formatCurrency(amount) {
     if (amount === null || amount === undefined || isNaN(amount)) return '$0.00';
@@ -76,7 +186,15 @@ export function resolveConnectedRole(usuario, authService) {
     return 'CLIENTE';
 }
 
-function setElementVisibility(el, visible) {
+export function clearTbody(tbody) {
+    if (!tbody) return;
+    if (Array.isArray(tbody.children)) {
+        tbody.children.length = 0;
+    }
+    tbody.textContent = '';
+}
+
+export function setElementVisibility(el, visible) {
     if (!el) return;
     if (visible) {
         if (el.classList) el.classList.remove('d-none');
@@ -87,6 +205,76 @@ function setElementVisibility(el, visible) {
         el.hidden = true;
         if (el.style) el.style.display = 'none';
     }
+}
+
+// Abre un modal Bootstrap 5 con respaldo visual cuando Bootstrap JS no está cargado
+export function showModal(modalEl) {
+    if (!modalEl) return null;
+    setElementVisibility(modalEl, true);
+    if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+        try {
+            const instance = bootstrap.Modal.getOrCreateInstance
+                ? bootstrap.Modal.getOrCreateInstance(modalEl)
+                : new bootstrap.Modal(modalEl);
+            instance.show();
+            return instance;
+        } catch {
+            // Aplicar respaldo visual directo si Bootstrap falla
+        }
+    }
+    modalEl.classList?.add('show');
+    if (modalEl.style) modalEl.style.display = 'block';
+    modalEl.setAttribute?.('aria-hidden', 'false');
+    return null;
+}
+
+// Oculta un modal Bootstrap 5 o su respaldo visual directo
+export function hideModal(modalEl) {
+    if (!modalEl) return;
+    if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+        try {
+            const instance = bootstrap.Modal.getInstance?.(modalEl);
+            instance?.hide();
+        } catch {
+            // Continuar con limpieza visual directa
+        }
+    }
+    modalEl.classList?.remove('show');
+    if (modalEl.style) modalEl.style.display = 'none';
+    modalEl.setAttribute?.('aria-hidden', 'true');
+}
+
+// Vincula cierre limpio de modal tanto en Bootstrap JS como en entorno fallback sin Bootstrap
+export function bindModalDismiss(modalEl, onHide = null) {
+    if (!modalEl) return;
+    if (!modalEl.dataset) modalEl.dataset = {};
+    if (modalEl.dataset.dismissBound === 'true') return;
+    modalEl.dataset.dismissBound = 'true';
+
+    modalEl.addEventListener?.('hidden.bs.modal', () => {
+        modalEl.setAttribute?.('aria-hidden', 'true');
+        if (typeof onHide === 'function') onHide();
+    });
+
+    modalEl.addEventListener?.('click', (e) => {
+        const target = e?.target;
+        const directDismiss = target?.getAttribute?.('data-bs-dismiss') === 'modal'
+            || target?.dataset?.bsDismiss === 'modal';
+        let dismissTrigger = directDismiss ? target : null;
+        if (!dismissTrigger && typeof target?.closest === 'function') {
+            const candidate = target.closest('[data-bs-dismiss="modal"]');
+            if (
+                candidate &&
+                (candidate.getAttribute?.('data-bs-dismiss') === 'modal' || candidate.dataset?.bsDismiss === 'modal')
+            ) {
+                dismissTrigger = candidate;
+            }
+        }
+        if (dismissTrigger && (typeof bootstrap === 'undefined' || !bootstrap.Modal)) {
+            hideModal(modalEl);
+            if (typeof onHide === 'function') onHide();
+        }
+    });
 }
 
 // Muestra alerta 403 si existe mensaje flash en sessionStorage o parámetro ?error=403 en la URL
@@ -250,9 +438,7 @@ export async function handleRegenerateApiKey(authService, skipConfirm = false) {
 // Oculta el modal de API Key en modo fallback (sin Bootstrap JS) y limpia su alerta
 export function hideApiKeyModalFallback(modalEl) {
     if (!modalEl) return;
-    modalEl.classList?.remove('show');
-    if (modalEl.style) modalEl.style.display = 'none';
-    modalEl.setAttribute?.('aria-hidden', 'true');
+    hideModal(modalEl);
     const alertResultado = typeof document !== 'undefined' ? document.getElementById('alertApiKeyResultado') : null;
     if (alertResultado) {
         setElementVisibility(alertResultado, false);
@@ -310,31 +496,10 @@ export function ensureApiKeyModal(usuario, authService) {
     if (!modalEl.dataset) modalEl.dataset = {};
     if (!modalEl.dataset.bsModalBound) {
         modalEl.dataset.bsModalBound = 'true';
-
-        modalEl.addEventListener?.('hidden.bs.modal', () => {
+        bindModalDismiss(modalEl, () => {
             const alertResultado = document.getElementById('alertApiKeyResultado');
             if (alertResultado) {
                 setElementVisibility(alertResultado, false);
-            }
-            modalEl.setAttribute?.('aria-hidden', 'true');
-        });
-
-        modalEl.addEventListener?.('click', (e) => {
-            const target = e?.target;
-            const directDismiss = target?.getAttribute?.('data-bs-dismiss') === 'modal'
-                || target?.dataset?.bsDismiss === 'modal';
-            let dismissTrigger = directDismiss ? target : null;
-            if (!dismissTrigger && typeof target?.closest === 'function') {
-                const candidate = target.closest('[data-bs-dismiss="modal"]');
-                if (
-                    candidate &&
-                    (candidate.getAttribute?.('data-bs-dismiss') === 'modal' || candidate.dataset?.bsDismiss === 'modal')
-                ) {
-                    dismissTrigger = candidate;
-                }
-            }
-            if (dismissTrigger && (typeof bootstrap === 'undefined' || !bootstrap.Modal)) {
-                hideApiKeyModalFallback(modalEl);
             }
         });
     }
