@@ -1,11 +1,11 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
 documento: Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
-version: 1.2.0
+version: 1.3.0
 estado_global: IN_PROGRESS
 ultima_actualizacion: 2026-11-23
 formato_agente: AI-READABLE-TASKS-V1
-referencia_spec: ReqProyectoWEB.md (v1.1.0)
+referencia_spec: ReqProyectoWEB.md (v1.3.0)
 backend_status: FROZEN_LOCKED
 ---
 
@@ -30,10 +30,10 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Fase 1** | Configuracion base y cliente HTTP | 4 | 4 | 0 | 0 | 100% |
 | **Fase 2** | Autenticacion, registro y control de roles | 7 | 7 | 0 | 0 | 100% |
-| **Fase 3** | Gestion de productos y catalogo | 6 | 0 | 1 | 5 | 15% |
+| **Fase 3** | Gestion de productos y catalogo | 6 | 6 | 0 | 0 | 100% |
 | **Fase 4** | Consulta de clientes y ordenes | 4 | 0 | 0 | 4 | 0% |
 | **Fase 5** | Seguridad en cliente, validaciones Vanilla y buenas practicas | 5 | 0 | 1 | 4 | 15% |
-| **TOTAL** | **Consolidado del Proyecto** | **26** | **11** | **2** | **13** | **46%** |
+| **TOTAL** | **Consolidado del Proyecto** | **26** | **17** | **1** | **8** | **65%** |
 
 ---
 
@@ -200,80 +200,80 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 ### FASE 3: Gestion de Productos y Catalogo
 
 #### [TASK-F3-01] Refactorizacion del Servicio de Productos (`productService.js`)
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Archivos Afectados:** `src/services/productService.js`
 * **Requisitos:** `REQ-CORE-001`, `REQ-BIZ-001`, `REQ-SEC-003`
 * **Descripcion:** Adaptar `productService.js` para consumir los endpoints reales y la estructura de datos del backend congelado.
 * **Criterios de Aceptacion:**
-  * - [ ] `getAll()`: consume `GET /api/Products`, maneja la respuesta `ProductsSummaryDto` (`totalProducts`, `products`).
-  * - [ ] `getById(id)`: consume `GET /api/Products/{id}`, retorna `ProductDto`.
-  * - [ ] `create(data)`: envia `POST /api/Products` con `ProductUpsertDto`.
-  * - [ ] `update(id, data)`: envia `PUT /api/Products/{id}` con `ProductUpsertDto`.
-  * - [ ] `delete(id)`: envia `DELETE /api/Products/{id}`.
-  * - [ ] `discontinue(id, currentData)`: invoca `update(id, { ...currentData, discontinued: true })`.
+  * - [x] `getAll()`: consume `GET /api/Products`, maneja la respuesta `ProductsSummaryDto` (`totalProducts`, `products`).
+  * - [x] `getById(id)`: consume `GET /api/Products/{id}`, retorna `ProductDto`.
+  * - [x] `create(data)`: envia `POST /api/Products` con `ProductUpsertDto`.
+  * - [x] `update(id, data)`: envia `PUT /api/Products/{id}` con `ProductUpsertDto`.
+  * - [x] `delete(id)`: envia `DELETE /api/Products/{id}`.
+  * - [x] `discontinue(id, currentData)`: invoca `update(id, { ...currentData, discontinued: true })`.
 
 #### [TASK-F3-02] Modelo de Datos y Validaciones de Entrada (`productModel.js`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
 * **Archivos Afectados:** `src/models/productModel.js`
 * **Requisitos:** `REQ-BIZ-003`
 * **Descripcion:** Asegurar que los datos enviados en operaciones de creacion y actualizacion cumplan estrictamente con las cotas del backend congelado.
 * **Criterios de Aceptacion:**
-  * - [ ] Validar `ProductName`: requerido, longitud entre 2 y 40 caracteres.
-  * - [ ] Validar `UnitPrice`: requerido, valor numerico entre 0.01 y 100,000.00.
-  * - [ ] Validar `UnitsInStock`: requerido, entero no negativo entre 0 y 32,767.
-  * - [ ] Validar `Discontinued`: booleano (`true` / `false`).
-  * - [ ] Metodo `validateProduct(dto)` que retorne lista de errores si alguna cota es violada.
+  * - [x] Validar `ProductName`: requerido, longitud entre 2 y 40 caracteres.
+  * - [x] Validar `UnitPrice`: requerido, valor numerico entre 0.01 y 100,000.00.
+  * - [x] Validar `UnitsInStock`: requerido, entero no negativo entre 0 y 32,767.
+  * - [x] Validar `Discontinued`: booleano (`true` / `false`).
+  * - [x] Metodo `validateProduct(dto)` que retorne lista de errores si alguna cota es violada.
 
 #### [TASK-F3-03] Vista de Gestion Administrativa de Productos (`productos.html`, `productsController.js`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
-* **Archivos Afectados:** `productos.html`, `src/controllers/productsController.js`
+* **Archivos Afectados:** `src/views/productos.html`, `src/controllers/productsController.js`
 * **Requisitos:** `REQ-AUTH-002`, `REQ-BIZ-001`
 * **Descripcion:** Vista administrativa con tabla interactiva para gestion de catalogo e inventario de productos.
 * **Criterios de Aceptacion:**
-  * - [ ] Protegida con `authGuard(['ADMIN', 'EMPLEADO'])`. Bloqueo directo a `CLIENTE`.
-  * - [ ] Si el usuario es `ADMIN`: botones de creacion ("Nuevo Producto"), edicion, descontinuacion y eliminacion visibles.
-  * - [ ] Si el usuario es `EMPLEADO`: ocultar boton de creacion y eliminacion; permitir unicamente edicion de precio y existencias.
-  * - [ ] Tabla con buscador en tiempo real, paginacion y ordenamiento por columnas.
+  * - [x] Protegida con `authGuard(['ADMIN', 'EMPLEADO'])`. Bloqueo directo a `CLIENTE`.
+  * - [x] Si el usuario es `ADMIN`: botones de creacion ("Nuevo Producto"), edicion, descontinuacion y eliminacion visibles.
+  * - [x] Si el usuario es `EMPLEADO`: ocultar boton de creacion y eliminacion; permitir unicamente edicion de precio y existencias.
+  * - [x] Tabla con buscador en tiempo real, paginacion y ordenamiento por columnas.
 
 #### [TASK-F3-04] Formulario Modal de Alta y Edicion de Productos
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
-* **Archivos Afectados:** `productos.html`, `src/controllers/productsController.js`
+* **Archivos Afectados:** `src/views/productos.html`, `src/controllers/productsController.js`
 * **Requisitos:** `REQ-BIZ-002`, `REQ-BIZ-003`, `REQ-SEC-002`
 * **Descripcion:** Modal interactivo para dar de alta o modificar productos con validacion preventiva en cliente.
 * **Criterios de Aceptacion:**
-  * - [ ] Formulario unificado para modo "Crear" y modo "Editar".
-  * - [ ] Atributos HTML5 (`min`, `max`, `maxlength`, `required`) reflejando los limites de `ProductUpsertDto`.
-  * - [ ] Limpieza automatica de validaciones al cerrar el modal.
-  * - [ ] Manejo de respuesta exitosa (201 Created / 204 NoContent) con notificacion Toast y recarga limpia de la tabla.
+  * - [x] Formulario unificado para modo "Crear" y modo "Editar".
+  * - [x] Atributos HTML5 (`min`, `max`, `maxlength`, `required`) reflejando los limites de `ProductUpsertDto`.
+  * - [x] Limpieza automatica de validaciones al cerrar el modal.
+  * - [x] Manejo de respuesta exitosa (201 Created / 204 NoContent) con notificacion Toast y recarga limpia de la tabla.
 
 #### [TASK-F3-05] Implementacion de Politica de Descontinuacion y Manejo de Error 409 Conflict
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Archivos Afectados:** `src/controllers/productsController.js`, `src/services/productService.js`
 * **Requisitos:** `REQ-BIZ-001`, `REQ-SEC-002`
 * **Descripcion:** Respetar la integridad referencial priorizando la descontinuacion logica y gestionando el error 409 cuando se intenta eliminacion fisica.
 * **Criterios de Aceptacion:**
-  * - [ ] Boton visible "Descontinuar" que ejecuta `PUT /api/Products/{id}` marcando `discontinued = true`.
-  * - [ ] Si un `ADMIN` pulsa "Eliminar" (`DELETE /api/Products/{id}`) y el backend devuelve `409 Conflict`, capturar el ProblemDetails y mostrar modal/alerta informativo:
+  * - [x] Boton visible "Descontinuar" que ejecuta `PUT /api/Products/{id}` marcando `discontinued = true`.
+  * - [x] Si un `ADMIN` pulsa "Eliminar" (`DELETE /api/Products/{id}`) y el backend devuelve `409 Conflict`, capturar el ProblemDetails y mostrar modal/alerta informativo:
     *"No se puede eliminar fisicamente el producto porque tiene ordenes historicas vinculadas. Se ha mantenido en el registro para preservar la integridad historica."*
-  * - [ ] Ofrecer en la misma alerta la accion rapida de descontinuarlo.
+  * - [x] Ofrecer en la misma alerta la accion rapida de descontinuarlo.
 
 #### [TASK-F3-06] Vista de Catalogo Comercial para Autoservicio (`catalogo.html`, `catalogController.js`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
-* **Archivos Afectados:** `catalogo.html`, `src/controllers/catalogController.js`
+* **Archivos Afectados:** `src/views/catalogo.html`, `src/controllers/catalogController.js`
 * **Requisitos:** `REQ-AUTH-001`, `REQ-AUTH-002`
 * **Descripcion:** Vista moderna y amigable para navegacion de productos por parte de usuarios finales (`CLIENTE`) y roles operativos.
 * **Criterios de Aceptacion:**
-  * - [ ] Protegida con `authGuard(['ADMIN', 'EMPLEADO', 'CLIENTE'])`.
-  * - [ ] Renderizado en cuadricula de tarjetas (product cards) mostrando nombre, precio formateado y disponibilidad de stock.
-  * - [ ] Filtros en tiempo real por texto de busqueda y rango de precio.
-  * - [ ] Vista estrictamente de lectura: sin botones de modificacion ni eliminacion de datos.
-  * - [ ] Indicador visual distintivo para productos agotados (`unitsInStock == 0`).
+  * - [x] Protegida con `authGuard(['ADMIN', 'EMPLEADO', 'CLIENTE'])`.
+  * - [x] Renderizado en cuadricula de tarjetas (product cards) mostrando nombre, precio formateado y disponibilidad de stock.
+  * - [x] Filtros en tiempo real por texto de busqueda y rango de precio.
+  * - [x] Vista estrictamente de lectura: sin botones de modificacion ni eliminacion de datos.
+  * - [x] Indicador visual distintivo para productos agotados (`unitsInStock == 0`).
 
 ---
 
@@ -402,3 +402,4 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | :--- | :--- | :---: | :--- |
 | 2026-11-23 | @planificador | 1.0.0 | Creacion inicial de la estructura WBS y desglose detallado de tareas (`TASK-F1-01` a `TASK-F5-05`) distribuido en las 5 fases del proyecto, con trazabilidad bidireccional contra `ReqProyectoWEB.md` (v1.1.0) y contratos inmutables del backend congelado. |
 | 2026-11-23 | @verifier | 1.2.0 | Completada y verificada al 100% la Fase 2 (`TASK-F2-01` a `TASK-F2-07`): implementacion de `authService.js` (`login`, `register`, `regenerateApiKey`, `logout`, utilidades RBAC y firma de integridad en `sessionStorage`), eliminacion de la llave maestra estatica en frontend, creacion de `authGuard.js` e integracion en controladores y vistas de `src/views/`, interfaz dual de login/registro en `src/views/login.html` y `loginController.js`, adaptacion dinamica de navbar y modal de regeneracion de API Key en `tableHelpers.js`, y suite de pruebas automatizadas (`tests/fase1.test.mjs` y `tests/fase2.test.mjs`, 15/15 tests pasando). |
+| 2026-11-23 | @verifier-f3 | 1.3.0 | Completada y verificada al 100% la Fase 3 (`TASK-F3-01` a `TASK-F3-06`): refactorizacion de `productService.js` (`getAll`, `getSummary`, `getById`, `create`, `update`, `delete`, `discontinue`), validaciones y cotas exactas en `productModel.js` (`validateProduct`, `PRODUCT_CONSTRAINTS`, prevencion de duplicados), vista administrativa RBAC y modal unificado en `src/views/productos.html` y `src/controllers/productsController.js` (restriccion de edicion de precio/stock para `EMPLEADO`, politica de descontinuacion y modal 409 Conflict con accion rapida), vista de catalogo comercial de solo lectura con filtros en tiempo real e indicador de agotados en `src/views/catalogo.html` y `src/controllers/catalogController.js`, y suite de pruebas automatizadas (`tests/fase1.test.mjs`, `tests/fase2.test.mjs`, `tests/fase3.test.mjs`, 21/21 tests pasando). |

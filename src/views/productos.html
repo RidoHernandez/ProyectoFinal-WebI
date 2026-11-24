@@ -49,13 +49,39 @@
     <main class="container-fluid px-4 py-4">
         <div id="alertContainer403"></div>
 
+        <!-- Modal / Alerta de Conflicto 409 (Integridad Referencial - REQ-BIZ-001 / TASK-F3-05) -->
+        <div id="modalConflicto409" class="modal fade d-none" tabindex="-1" aria-labelledby="modalConflicto409Titulo" aria-hidden="true" hidden>
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-warning shadow">
+                    <div class="modal-header bg-warning text-dark">
+                        <h5 class="modal-title fw-bold" id="modalConflicto409Titulo">Conflicto de Integridad Histórica (HTTP 409)</h5>
+                        <button type="button" id="btnCerrarConflicto409" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="alertConflicto409" class="alert alert-warning d-none mb-2" role="alert" hidden>
+                            No se puede eliminar fisicamente el producto porque tiene ordenes historicas vinculadas. Se ha mantenido en el registro para preservar la integridad historica.
+                        </div>
+                        <p id="detalleConflicto409" class="small text-muted mb-0"></p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                        <button type="button" id="btnDescontinuarDesde409" class="btn btn-warning fw-semibold">Descontinuar Producto</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
-                <h2 class="fw-bold mb-0">Gestión de Productos</h2>
+                <h2 class="fw-bold mb-0">
+                    Gestión de Productos
+                    <span id="lblTotalProductos" class="badge bg-secondary fs-6 align-middle ms-2">0</span>
+                </h2>
                 <small class="text-muted">Inventario general Northwind (Control de Acceso Basado en Roles - RBAC)</small>
             </div>
-            <button id="btnNuevoProducto" class="btn btn-primary shadow-sm">+ Nuevo Producto</button>
+            <button id="btnNuevoProducto" type="button" class="btn btn-primary shadow-sm">+ Nuevo Producto</button>
         </div>
+
         <div class="card shadow-sm border-0">
             <div class="card-body">
                 <table id="tablaProductos" class="table table-striped table-hover align-middle w-100">
@@ -76,7 +102,7 @@
         </div>
     </main>
 
-    <!-- Modal Crear / Editar Producto -->
+    <!-- Modal Unificado Crear / Editar Producto (TASK-F3-04) -->
     <div class="modal fade" id="modalProducto" tabindex="-1" aria-labelledby="modalTitulo" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content">
@@ -86,39 +112,50 @@
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                     </div>
                     <div class="modal-body">
+                        <div id="alertModalProducto" class="alert alert-danger d-none py-2 px-3 small mb-3" role="alert" hidden></div>
                         <input type="hidden" id="prodId">
                         <div class="row g-3">
                             <div class="col-12">
                                 <label for="prodName" class="form-label">Nombre del producto <span class="text-danger">*</span></label>
-                                <input type="text" id="prodName" class="form-control" minlength="2" maxlength="40" required>
-                                <div class="invalid-feedback">El nombre es obligatorio (2 a 40 caracteres).</div>
+                                <input type="text" id="prodName" name="productName" class="form-control" minlength="2" maxlength="40" required>
+                                <div id="feedbackProdName" class="invalid-feedback">El nombre es obligatorio (2 a 40 caracteres).</div>
                             </div>
                             <div class="col-md-6">
-                                <label for="prodPrice" class="form-label">Precio unitario</label>
-                                <div class="input-group">
+                                <label for="prodPrice" class="form-label">Precio unitario <span class="text-danger">*</span></label>
+                                <div class="input-group has-validation">
                                     <span class="input-group-text">$</span>
-                                    <input type="number" id="prodPrice" class="form-control" min="0.01" max="100000" step="0.01" inputmode="decimal">
-                                    <div class="invalid-feedback">El precio debe estar entre $0.01 y $100,000.00.</div>
+                                    <input type="number" id="prodPrice" name="unitPrice" class="form-control" min="0.01" max="100000" step="0.01" inputmode="decimal" required>
+                                    <div id="feedbackProdPrice" class="invalid-feedback">El precio debe estar entre $0.01 y $100,000.00.</div>
                                 </div>
                             </div>
                             <div class="col-md-6">
-                                <label for="prodStock" class="form-label">Unidades en stock</label>
-                                <input type="number" id="prodStock" class="form-control" min="0" max="32767" step="1" inputmode="numeric">
-                                <div class="invalid-feedback">Valor entero entre 0 y 32767.</div>
+                                <label for="prodStock" class="form-label">Unidades en stock <span class="text-danger">*</span></label>
+                                <input type="number" id="prodStock" name="unitsInStock" class="form-control" min="0" max="32767" step="1" inputmode="numeric" required>
+                                <div id="feedbackProdStock" class="invalid-feedback">Valor entero entre 0 y 32,767.</div>
                             </div>
                             <div class="col-12">
                                 <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" role="switch" id="prodDiscontinued">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="prodDiscontinued" name="discontinued">
                                     <label class="form-check-label" for="prodDiscontinued">Producto descontinuado</label>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" id="btnCancelarModalProducto" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                         <button type="submit" id="btnGuardar" class="btn btn-primary">Guardar</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contenedor de Notificaciones Toast (TASK-F3-04 / TASK-F3-05) -->
+    <div id="toastContainerProductos" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1080;">
+        <div id="toastProducto" class="toast align-items-center text-bg-success border-0 d-none" role="status" aria-live="polite" aria-atomic="true" hidden>
+            <div class="d-flex">
+                <div id="toastProductoMensaje" class="toast-body fw-semibold"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Cerrar"></button>
             </div>
         </div>
     </div>
