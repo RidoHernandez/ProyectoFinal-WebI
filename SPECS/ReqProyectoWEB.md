@@ -13,7 +13,7 @@ backend_status: FROZEN_LOCKED
 Este documento esta estructurado para ser analizado y actualizado de forma determinista por cualquier agente del enjambre. Al interactuar con este archivo o ejecutar tareas sobre el proyecto, respeta estrictamente las siguientes directrices:
 1. **Identificadores Unicos Inmutables:** Nunca modifiques el ID de un requisito existente (`REQ-[MODULO]-[NUMERO]`). Los correlativos identifican contractualmente cada compromiso del sistema.
 2. **Estados Validos:** Utiliza unicamente las etiquetas estandarizadas `[TODO]`, `[IN_PROGRESS]`, `[REVIEW]`, `[DONE]`, `[BLOCKED]`.
-3. **Backend 100% Congelado (Inmutable):** El codigo fuente, modelos, base de datos y endpoints en `c:\Proyectos\Web II\API-KEY_AUTH` estan estrictamente congelados y NO se pueden modificar bajo ninguna circunstancia. Toda solucion, restriccion de roles, interfaz y control de acceso debe implementarse y resolverse en la capa frontend (Vanilla JavaScript / HTML5 / CSS3).
+3. **Backend 100% Congelado (Inmutable):** El codigo fuente, modelos, base de datos y endpoints en `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH` estan estrictamente congelados y NO se pueden modificar bajo ninguna circunstancia. Toda solucion, restriccion de roles, interfaz y control de acceso debe implementarse y resolverse en la capa frontend (Vanilla JavaScript / HTML5 / CSS3).
 4. **Actualizacion de Progreso:** Al marcar una subtarea como completada (`- [x]`), recalcula el porcentaje en la seccion "Resumen de Progreso" y actualiza el estado del requisito padre.
 5. **Registro de Cambios:** Documenta cualquier modificacion estructural, de criterios o de estado en la seccion final "Historial de Cambios del Agente".
 
@@ -33,22 +33,22 @@ Este documento esta estructurado para ser analizado y actualizado de forma deter
 
 ## 3. Inventario del Backend Congelado y Mapeo de Contratos
 
-El backend ASP.NET Core (`APIkey`, .NET 8 / MySQL) expone exclusivamente los siguientes controladores y contratos inmutables:
+El backend ASP.NET Core (`APIkey`, .NET 8 / MySQL en `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH`, ejecutando en `http://localhost:5009` / `https://localhost:7039` con CORS `AllowAll`) expone exclusivamente los siguientes controladores y contratos inmutables:
 
 ### 3.1. AuthController (`/api/auth`)
-* `POST /api/auth/register`: Recibe `RegisterDto` (`Username`, `Email`, `Password`). Valida unicidad de usuario y correo; almacena clave hasheada con PBKDF2 (100,000 iteraciones, SHA256); genera API Key (`ak_...`) con vigencia de 30 dias. Retorna `201 Created` con `AuthResponseDto` (`UserId`, `Username`, `ApiKey`, `ExpiresAt`).
+* `POST /api/auth/register`: Recibe `RegisterDto` (`Username` [Required], `Email` [Required, EmailAddress], `Password` [Required, MinLength(8)]). Valida unicidad de usuario y correo (retorna `400 Bad Request` ProblemDetails si existe duplicado); almacena clave hasheada con PBKDF2 (100,000 iteraciones, SHA256, salt de 16 bytes); genera API Key (`ak_...`) con vigencia de 30 dias. Retorna `201 Created` con `AuthResponseDto` (`UserId`, `Username`, `ApiKey`, `ExpiresAt`).
 * `POST /api/auth/login`: Recibe `LoginDto` (`Username`, `Password`). Valida credenciales contra PBKDF2 en tiempo constante; invalida llaves anteriores activas del usuario; genera nueva API Key activa; retorna `200 OK` con `AuthResponseDto`. Si las credenciales fallan o el usuario tiene `IsActive == false`, retorna `401 Unauthorized` con ProblemDetails generico ("Credenciales invalidas").
 
 ### 3.2. ApiKeysController (`/api/apikeys`)
-* `POST /api/apikeys/regenerate`: Protegido por filtro `[ApiKey]`. Invalida la API Key actual enviada en la cabecera `X-API-KEY`, genera una nueva llave para el mismo `ClientIdentifier`, y retorna `200 OK` con `ApiKeyCreatedResponseDto` (`Id`, `ClientIdentifier`, `ApiKey`, `CreatedAt`, `IsActive`, `ExpiresAt`).
+* `POST /api/apikeys/regenerate`: Protegido por filtro `[ApiKey]`. Invalida la API Key actual enviada en la cabecera `X-API-KEY` (buscando su hash SHA256 en la tabla `api_keys`), genera una nueva llave (`ak_...` con vigencia de 30 dias) para el mismo `ClientIdentifier`, y retorna `200 OK` con `ApiKeyCreatedResponseDto` (`Id`, `ClientIdentifier`, `ApiKey`, `CreatedAt`, `IsActive`, `ExpiresAt`). *Nota: La llave maestra estatica `ROBE-LINGO-KEY-1234` no reside en `api_keys`, por lo que intentar regenerarla retorna `401 Unauthorized`.*
 
 ### 3.3. ProductsController (`/api/Products`)
 * Protegido integralmente por filtro `[ApiKey]`.
-* `GET /api/Products`: Retorna `ProductsSummaryDto` (`{ totalProducts: int, products: List<ProductDto> }`). Cada `ProductDto` contiene unicamente `ProductId`, `ProductName`, `UnitPrice`, `UnitsInStock`.
+* `GET /api/Products`: Retorna `ProductsSummaryDto` (`{ totalProducts: int, products: List<ProductDto> }`). Cada `ProductDto` contiene unicamente `ProductId`, `ProductName`, `UnitPrice`, `UnitsInStock` (no expone `Discontinued` en la proyeccion de lectura).
 * `GET /api/Products/{id}`: Retorna un `ProductDto` especifico o `404 Not Found`.
-* `POST /api/Products`: Recibe `ProductUpsertDto` (`ProductName` [2-40 chars], `UnitPrice` [0.01 - 100,000], `UnitsInStock` [0 - 32,767], `Discontinued` [bool]). Retorna `201 Created` con `ProductDto`.
+* `POST /api/Products`: Recibe `ProductUpsertDto` (`ProductName` [2-40 chars], `UnitPrice` [0.01 - 100,000], `UnitsInStock` [0 - 32,767], `Discontinued` [bool, default `false`]). Retorna `201 Created` con `ProductDto`.
 * `PUT /api/Products/{id}`: Actualiza producto existente con `ProductUpsertDto`. Retorna `204 NoContent` o `404 Not Found`.
-* `DELETE /api/Products/{id}`: Ejecuta eliminacion fisica. Si existen ordenes o detalles referenciados, el backend captura la violacion de llave foranea y retorna `409 Conflict` ("Conflicto de integridad referencial").
+* `DELETE /api/Products/{id}`: Ejecuta eliminacion fisica. Si existen ordenes o detalles referenciados, el backend captura `DbUpdateException` y retorna `409 Conflict` ("Conflicto de integridad referencial").
 
 ### 3.4. CustomersController (`/api/customers`)
 * Protegido por filtro `[ApiKey]`.
@@ -341,3 +341,4 @@ Para incorporar un nuevo requisito, agrega el siguiente bloque en el modulo corr
 | :--- | :--- | :--- | :--- |
 | 2026-11-21 | Sistema Inicial | ALL | Creacion de la linea base inicial de requisitos del proyecto. |
 | 2026-11-23 | @analista | ALL | Auditoria integral de viabilidad contra el backend 100% congelado (`APIkey`). Se documento el inventario exacto de endpoints reales, se adaptaron los requisitos de ordenes y clientes a modo solo-lectura, se definieron formalmente los 3 roles (`ADMIN`, `EMPLEADO`, `CLIENTE`) con su matriz RBAC completa, se diseno la arquitectura de seguridad frontend en Vanilla JS (`sessionStorage`, guardias de navegacion, mitigacion XSS, bloqueo por fuerza bruta de 15 min), y se actualizaron los porcentajes de progreso y estados. |
+| 2026-11-23 | Antigravity | ALL | Actualizacion de la ruta oficial del backend congelado a `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH` y recapitulacion tras inspeccion directa de controladores, filtros, DTOs y configuracion (`Program.cs`, `launchSettings.json`, `ApiKeyAttribute.cs`, `AuthController.cs`, `ApiKeysController.cs`, `ProductsController.cs`, `CustomersController.cs`, `OrdersController.cs`). |
