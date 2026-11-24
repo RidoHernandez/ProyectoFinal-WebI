@@ -3,44 +3,181 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Northwind - Iniciar Sesión</title>
+    <meta http-equiv="Content-Security-Policy" content="frame-ancestors 'none';">
+    <title>Northwind - Acceso y Registro de Clientes</title>
+    <script>
+        if (window.top !== window.self) {
+            window.top.location = window.self.location;
+        }
+    </script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 </head>
-<body class="bg-light d-flex align-items-center justify-content-center vh-100">
+<body class="bg-light d-flex align-items-center justify-content-center min-vh-100 py-4">
 
-    <div class="card shadow-lg p-4 border-0 rounded-4" style="max-width: 440px; width: 100%;">
-        <div class="text-center mb-3">
-            <span class="badge bg-primary-subtle text-primary px-3 py-2 rounded-pill fs-6">Northwind API</span>
-            <h3 class="fw-bold text-dark mt-2 mb-1">Acceso con API Key</h3>
-            <p class="text-muted small">
-                Autenticación segura mediante cabecera <code>X-API-KEY</code>.
-            </p>
+    <main class="container" style="max-width: 480px;">
+        <div class="card shadow-lg p-4 border-0 rounded-4">
+            <div class="text-center mb-3">
+                <span class="badge bg-primary-subtle text-primary px-3 py-2 rounded-pill fs-6">Northwind Comercial</span>
+                <h3 class="fw-bold text-dark mt-2 mb-1">Portal de Acceso</h3>
+                <p class="text-muted small mb-0">
+                    Autenticación segura y control de acceso basado en roles (RBAC).
+                </p>
+            </div>
+
+            <!-- Pestañas de alternancia: Iniciar Sesión / Registrarse como Cliente -->
+            <ul class="nav nav-pills nav-fill bg-body-tertiary p-1 rounded-3 mb-3" id="authTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active fw-semibold small" id="tabLogin" data-bs-toggle="pill"
+                            data-bs-target="#paneLogin" type="button" role="tab"
+                            aria-controls="paneLogin" aria-selected="true">
+                        Iniciar Sesión
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link fw-semibold small" id="tabRegister" data-bs-toggle="pill"
+                            data-bs-target="#paneRegister" type="button" role="tab"
+                            aria-controls="paneRegister" aria-selected="false">
+                        Registrarse como Cliente
+                    </button>
+                </li>
+            </ul>
+
+            <!-- Contenedores de alerta seguros (renderizados vía textContent) -->
+            <div id="alertError" class="alert alert-danger d-none py-2 px-3 small mb-3" role="alert"></div>
+            <div id="alertSuccess" class="alert alert-success d-none py-2 px-3 small mb-3" role="alert"></div>
+
+            <div class="tab-content" id="authTabsContent">
+                <!-- PESTAÑA 1: INICIAR SESIÓN -->
+                <div class="tab-pane fade show active" id="paneLogin" role="tabpanel" aria-labelledby="tabLogin" tabindex="0">
+                    <form id="formLogin" novalidate>
+                        <div class="mb-3">
+                            <label for="txtLoginUsername" class="form-label small fw-semibold">
+                                Usuario <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" id="txtLoginUsername" name="username" class="form-control"
+                                   placeholder="Ingresa tu nombre de usuario" required minlength="3" maxlength="50"
+                                   autocomplete="username">
+                            <div id="errLoginUsername" class="invalid-feedback">
+                                Por favor ingresa tu nombre de usuario.
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="txtLoginPassword" class="form-label small fw-semibold">
+                                Contraseña <span class="text-danger">*</span>
+                            </label>
+                            <input type="password" id="txtLoginPassword" name="password" class="form-control"
+                                   placeholder="Ingresa tu contraseña" required
+                                   autocomplete="current-password">
+                            <div id="errLoginPassword" class="invalid-feedback">
+                                Por favor ingresa tu contraseña.
+                            </div>
+                        </div>
+
+                        <!-- Configuración opcional de URL del Backend (no sensible, localStorage) -->
+                        <div class="mb-3">
+                            <button class="btn btn-link btn-sm text-decoration-none p-0 text-secondary" type="button"
+                                    id="btnToggleApiUrl" data-bs-toggle="collapse" data-bs-target="#collapseApiUrl"
+                                    aria-expanded="false" aria-controls="collapseApiUrl">
+                                Configurar URL del Backend (opcional)
+                            </button>
+                            <div class="collapse mt-2" id="collapseApiUrl">
+                                <div class="p-2 bg-body-tertiary rounded-3 border">
+                                    <label for="txtApiUrl" class="form-label small fw-semibold mb-1">URL Base del Backend (API)</label>
+                                    <input type="url" id="txtApiUrl" name="apiUrl" class="form-control form-control-sm"
+                                           placeholder="https://localhost:7039/api" autocomplete="off">
+                                    <div class="form-text small" id="helpApiUrl">
+                                        Parámetro no sensible guardado en <code>localStorage (northwind_api_url)</code>.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Aviso y cronómetro de bloqueo por fuerza bruta (REQ-SEC-006) -->
+                        <div id="lockoutBanner" class="alert alert-warning d-none py-2 px-3 small mb-3" role="alert">
+                            Demasiados intentos fallidos. Acceso bloqueado temporalmente. Intenta nuevamente en
+                            <span id="lblLockoutCountdown" class="fw-bold">15:00</span>.
+                        </div>
+
+                        <!-- Reto CAPTCHA posterior al bloqueo temporal -->
+                        <div id="captchaContainer" class="d-none mb-3 p-3 bg-body-tertiary rounded-3 border">
+                            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                                <label for="txtCaptchaAnswer" class="form-label small fw-semibold mb-0">
+                                    Verificación de seguridad:
+                                    <span id="lblCaptchaQuestion" class="fw-bold text-primary"></span>
+                                </label>
+                                <button type="button" id="btnRefreshCaptcha" class="btn btn-outline-secondary btn-sm">
+                                    Nuevo reto
+                                </button>
+                            </div>
+                            <input type="number" id="txtCaptchaAnswer" class="form-control form-control-sm"
+                                   placeholder="Ingresa el resultado" inputmode="numeric" autocomplete="off">
+                            <div id="errCaptcha" class="invalid-feedback">
+                                Respuesta de verificación incorrecta. Intenta nuevamente.
+                            </div>
+                        </div>
+
+                        <button type="submit" id="btnLogin" class="btn btn-primary py-2 px-3 fw-semibold shadow-sm w-100">
+                            Iniciar Sesión
+                        </button>
+                    </form>
+                </div>
+
+                <!-- PESTAÑA 2: REGISTRARSE COMO CLIENTE -->
+                <div class="tab-pane fade" id="paneRegister" role="tabpanel" aria-labelledby="tabRegister" tabindex="0">
+                    <form id="formRegister" novalidate>
+                        <div class="alert alert-info border-0 bg-info-subtle text-info-emphasis py-2 px-3 small d-flex align-items-center justify-content-between mb-3" role="note">
+                            <span>Registro público de autoservicio</span>
+                            <span id="badgeRoleCliente" class="badge bg-primary rounded-pill">Rol: CLIENTE</span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="txtRegUsername" class="form-label small fw-semibold">
+                                Nombre de Usuario <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" id="txtRegUsername" name="username" class="form-control"
+                                   placeholder="Ej. cliente_norte (3 a 50 caracteres)" required minlength="3" maxlength="50"
+                                   autocomplete="username">
+                            <div id="errRegUsername" class="invalid-feedback">
+                                El nombre de usuario es obligatorio (3 a 50 caracteres, sin espacios).
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="txtRegEmail" class="form-label small fw-semibold">
+                                Correo Electrónico <span class="text-danger">*</span>
+                            </label>
+                            <input type="email" id="txtRegEmail" name="email" class="form-control"
+                                   placeholder="correo@ejemplo.com" required autocomplete="email">
+                            <div id="errRegEmail" class="invalid-feedback">
+                                Ingresa un correo electrónico con formato válido.
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="txtRegPassword" class="form-label small fw-semibold">
+                                Contraseña <span class="text-danger">*</span>
+                            </label>
+                            <input type="password" id="txtRegPassword" name="password" class="form-control"
+                                   placeholder="Mínimo 8 caracteres" required minlength="8"
+                                   autocomplete="new-password">
+                            <div id="errRegPassword" class="invalid-feedback">
+                                La contraseña debe tener una longitud mínima de 8 caracteres.
+                            </div>
+                        </div>
+
+                        <button type="submit" id="btnRegister" class="btn btn-success py-2 px-3 fw-semibold shadow-sm w-100">
+                            Registrarse como Cliente
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
-
-        <form id="formLogin" novalidate>
-            <div id="alertError" class="alert alert-danger d-none py-2 small" role="alert"></div>
-
-            <div class="mb-3">
-                <label for="txtApiKey" class="form-label small fw-semibold">API Key <span class="text-danger">*</span></label>
-                <input type="text" id="txtApiKey" class="form-control" placeholder="Ej. ROBE-LINGO-KEY-1234" value="ROBE-LINGO-KEY-1234" required autocomplete="off">
-                <div class="form-text small">Clave predeterminada de la API escolar.</div>
-            </div>
-
-            <div class="mb-3">
-                <label for="txtApiUrl" class="form-label small fw-semibold">URL del Backend (API)</label>
-                <input type="url" id="txtApiUrl" class="form-control" placeholder="http://localhost:5009" value="http://localhost:5009">
-                <div class="form-text small">Puerto configurado en launchSettings.json (5009).</div>
-            </div>
-
-            <button type="submit" id="btnLogin" class="btn btn-primary py-2 px-3 fw-semibold shadow-sm w-100">
-                Ingresar al Sistema
-            </button>
-        </form>
-    </div>
+    </main>
 
     <!-- Bootstrap 5 JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Controlador exclusivo de Login -->
-    <script type="module" src="./src/controllers/loginController.js"></script>
+    <!-- Controlador exclusivo de Login y Registro -->
+    <script type="module" src="../controllers/loginController.js"></script>
 </body>
 </html>

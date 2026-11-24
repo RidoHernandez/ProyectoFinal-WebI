@@ -2,6 +2,10 @@ import {
     API_BASE_URL,
     DEFAULT_BASE_URL,
     STORAGE_KEYS,
+    ROLES,
+    ADMIN_WHITELIST,
+    EMPLOYEE_WHITELIST,
+    EMPLOYEE_PREFIX,
     AUTH_LOGIN,
     AUTH_REGISTER,
     APIKEYS_REGENERATE,
@@ -18,6 +22,10 @@ export {
     API_BASE_URL,
     DEFAULT_BASE_URL,
     STORAGE_KEYS,
+    ROLES,
+    ADMIN_WHITELIST,
+    EMPLOYEE_WHITELIST,
+    EMPLOYEE_PREFIX,
     AUTH_LOGIN,
     AUTH_REGISTER,
     APIKEYS_REGENERATE,
@@ -161,6 +169,7 @@ export function setApiConfig(apiKey, baseUrl = null) {
         }
         if (typeof localStorage !== 'undefined') {
             localStorage.removeItem(STORAGE_KEYS.API_KEY);
+            localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
             if (baseUrl && baseUrl.trim() !== '') {
                 localStorage.setItem(STORAGE_KEYS.API_URL, baseUrl.trim().replace(/\/+$/, ''));
             }
@@ -170,14 +179,32 @@ export function setApiConfig(apiKey, baseUrl = null) {
     }
 }
 
+const SENSITIVE_LOCAL_KEYS = Object.freeze([
+    STORAGE_KEYS.API_KEY,
+    STORAGE_KEYS.AUTH_SESSION,
+    STORAGE_KEYS.AUTH_FLASH_ERROR,
+    'api_key',
+    'apiKey',
+    'auth_token',
+    'token',
+    'user',
+    'session',
+    'password'
+]);
+
 export function clearApiConfig() {
     try {
         if (typeof sessionStorage !== 'undefined') {
             sessionStorage.removeItem(STORAGE_KEYS.API_KEY);
             sessionStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+            sessionStorage.removeItem(STORAGE_KEYS.AUTH_FLASH_ERROR);
+            sessionStorage.removeItem('northwind_discontinued_products');
+            sessionStorage.clear?.();
         }
         if (typeof localStorage !== 'undefined') {
-            localStorage.removeItem(STORAGE_KEYS.API_KEY);
+            for (const key of SENSITIVE_LOCAL_KEYS) {
+                localStorage.removeItem(key);
+            }
         }
     } catch {
         // Ignore storage errors

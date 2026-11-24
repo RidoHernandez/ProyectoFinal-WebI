@@ -4,8 +4,28 @@ export const DEFAULT_BASE_URL = 'https://localhost:7039';
 export const STORAGE_KEYS = Object.freeze({
     API_URL: 'northwind_api_url',
     API_KEY: 'northwind_api_key',
-    AUTH_SESSION: 'auth_session'
+    AUTH_SESSION: 'auth_session',
+    AUTH_FLASH_ERROR: 'auth_flash_error'
 });
+
+export const ROLES = Object.freeze({
+    ADMIN: 'ADMIN',
+    EMPLEADO: 'EMPLEADO',
+    CLIENTE: 'CLIENTE'
+});
+
+export const ADMIN_WHITELIST = Object.freeze([
+    'admin',
+    'administrador'
+]);
+
+export const EMPLOYEE_WHITELIST = Object.freeze([
+    'empleado',
+    'operador',
+    'ventas'
+]);
+
+export const EMPLOYEE_PREFIX = 'emp_';
 
 export const AUTH_LOGIN = '/auth/login';
 export const AUTH_REGISTER = '/auth/register';
