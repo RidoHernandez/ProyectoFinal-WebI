@@ -1001,3 +1001,39 @@ test('TASK-F3-06: Vista de catalogo comercial (authGuard, tarjetas, filtros en t
     await chkDisp.dispatchEvent('change');
     assert.equal(doc.getElementById('lblTotalCatalogo').textContent, '0 producto(s)');
 });
+
+test('Regresion Fase 3: renderizarTablaFallback preserva celdas, permisos CLIENTE en productos y discontinue no marca cache si falla update', async () => {
+    resetEnvironment('/src/views/productos.html');
+    const doc = globalThis.document;
+    const tbody = doc.registerElement(new MockElement('tbody', 'tbodyProductos'));
+    const btnNuevo = doc.registerElement(new MockElement('button', 'btnNuevoProducto'));
+    const prodPrice = doc.registerElement(new MockElement('input', 'prodPrice'));
+    const prodStock = doc.registerElement(new MockElement('input', 'prodStock'));
+
+    // 1. renderizarTablaFallback construye <td> hijos sin sobrescribirlos con tr.textContent
+    productsCtrl.renderizarTablaFallback(
+        [{ productId: 10, productName: 'Queso', unitPrice: 12.5, unitsInStock: 4, discontinued: false }],
+        'ADMIN'
+    );
+    assert.equal(tbody.children.length, 1);
+    assert.equal(tbody.children[0].children.length, 6);
+
+    // 2. aplicarPermisosRolProductos('CLIENTE') bloquea edicion y oculta boton nuevo
+    productsCtrl.aplicarPermisosRolProductos('CLIENTE');
+    assert.equal(btnNuevo.hidden, true);
+    assert.equal(prodPrice.disabled, true);
+    assert.equal(prodStock.disabled, true);
+
+    // 3. productService.discontinue no debe marcar el producto como descontinuado si PUT falla
+    productService.clearDiscontinuedCache();
+    await loginMockUser('admin');
+    globalThis.fetch = async () => makeResponse({
+        status: 500,
+        body: { title: 'Error interno' }
+    });
+    await assert.rejects(
+        () => productService.discontinue(77, { productName: 'Test', unitPrice: 10, unitsInStock: 5 }),
+        /Error/i
+    );
+    assert.equal(productService.isDiscontinued(77), false);
+});

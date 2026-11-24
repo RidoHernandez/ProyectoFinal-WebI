@@ -64,8 +64,8 @@ export function filtrarProductosCatalogo(
     const rawQuery = texto !== '' ? texto : (termino ?? search ?? '');
     const query = String(rawQuery ?? '').trim().toLowerCase();
 
-    const minVal = parsePriceBound(precioMin !== null ? precioMin : minPrice);
-    const maxVal = parsePriceBound(precioMax !== null ? precioMax : maxPrice);
+    const minVal = parsePriceBound(precioMin ?? minPrice);
+    const maxVal = parsePriceBound(precioMax ?? maxPrice);
     const requireStock = Boolean(soloDisponibles || onlyAvailable);
 
     return lista.filter((item) => {
@@ -401,6 +401,9 @@ export async function initCatalogController(doc = typeof document !== 'undefined
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('DOMContentLoaded', async () => {
+        if (document.body?.getAttribute?.('data-auth-blocked') || !authService.isAuthenticated() || !authService.hasRole(['ADMIN', 'EMPLEADO', 'CLIENTE'])) {
+            return;
+        }
         await initCatalogController(document);
     });
 }

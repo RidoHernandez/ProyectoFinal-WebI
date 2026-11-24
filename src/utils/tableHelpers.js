@@ -247,6 +247,18 @@ export async function handleRegenerateApiKey(authService, skipConfirm = false) {
     }
 }
 
+// Oculta el modal de API Key en modo fallback (sin Bootstrap JS) y limpia su alerta
+export function hideApiKeyModalFallback(modalEl) {
+    if (!modalEl) return;
+    modalEl.classList?.remove('show');
+    if (modalEl.style) modalEl.style.display = 'none';
+    modalEl.setAttribute?.('aria-hidden', 'true');
+    const alertResultado = typeof document !== 'undefined' ? document.getElementById('alertApiKeyResultado') : null;
+    if (alertResultado) {
+        setElementVisibility(alertResultado, false);
+    }
+}
+
 // Inyecta o actualiza el modal de gestión de API Key para roles administrativos (ADMIN / EMPLEADO)
 export function ensureApiKeyModal(usuario, authService) {
     if (typeof document === 'undefined' || !document.body) return null;
@@ -293,6 +305,38 @@ export function ensureApiKeyModal(usuario, authService) {
             </div>
         `;
         document.body.appendChild(modalEl);
+    }
+
+    if (!modalEl.dataset) modalEl.dataset = {};
+    if (!modalEl.dataset.bsModalBound) {
+        modalEl.dataset.bsModalBound = 'true';
+
+        modalEl.addEventListener?.('hidden.bs.modal', () => {
+            const alertResultado = document.getElementById('alertApiKeyResultado');
+            if (alertResultado) {
+                setElementVisibility(alertResultado, false);
+            }
+            modalEl.setAttribute?.('aria-hidden', 'true');
+        });
+
+        modalEl.addEventListener?.('click', (e) => {
+            const target = e?.target;
+            const directDismiss = target?.getAttribute?.('data-bs-dismiss') === 'modal'
+                || target?.dataset?.bsDismiss === 'modal';
+            let dismissTrigger = directDismiss ? target : null;
+            if (!dismissTrigger && typeof target?.closest === 'function') {
+                const candidate = target.closest('[data-bs-dismiss="modal"]');
+                if (
+                    candidate &&
+                    (candidate.getAttribute?.('data-bs-dismiss') === 'modal' || candidate.dataset?.bsDismiss === 'modal')
+                ) {
+                    dismissTrigger = candidate;
+                }
+            }
+            if (dismissTrigger && (typeof bootstrap === 'undefined' || !bootstrap.Modal)) {
+                hideApiKeyModalFallback(modalEl);
+            }
+        });
     }
 
     updateModalApiKeyInfo(usuario, authService);
@@ -407,9 +451,16 @@ export function initNavbar(usuario, authService) {
                     instance.show();
                 } else if (modalEl) {
                     modalEl.classList.add('show');
-                    modalEl.style.display = 'block';
+                    if (modalEl.style) modalEl.style.display = 'block';
+                    modalEl.setAttribute?.('aria-hidden', 'false');
                 }
             };
+        } else {
+            btnPerfilApiKey.onclick = null;
+            const modalEl = document.getElementById('modalApiKey');
+            if (modalEl) {
+                hideApiKeyModalFallback(modalEl);
+            }
         }
     }
 
