@@ -53,6 +53,11 @@
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
                 <h2 class="fw-bold mb-0">Directorio de Clientes</h2>
+            <div class="d-flex align-items-center mb-2">
+                <input type="search" id="txtBuscarCliente" class="form-control form-control-sm me-2" placeholder="Buscar cliente por ID, empresa o contacto..." autocomplete="off" />
+                <button type="button" id="btnLimpiarBusquedaCliente" class="btn btn-outline-secondary btn-sm">Limpiar</button>
+                <span class="ms-auto">Total: <strong id="lblTotalClientes">0</strong></span>
+            </div>
                 <small class="text-muted">Consulta de clientes corporativos (Backend: /api/customers)</small>
             </div>
         </div>
@@ -85,5 +90,31 @@
     <script src="https://cdn.datatables.net/responsive/3.0.3/js/responsive.bootstrap5.min.js"></script>
     <!-- Controlador exclusivo de Clientes -->
     <script type="module" src="../controllers/customersController.js"></script>
+
+    <!-- Modal Detalle Cliente -->
+    <div class="modal fade" id="modalDetalleCliente" tabindex="-1" aria-labelledby="modalDetalleClienteTitulo" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+          <div class="modal-header bg-dark text-white">
+            <h5 class="modal-title" id="modalDetalleClienteTitulo">Detalle del Cliente <span id="detClienteId" class="text-info"></span></h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <dl class="row mb-0">
+              <dt class="col-sm-4">Empresa</dt>
+              <dd class="col-sm-8" id="detClienteEmpresa"></dd>
+              <dt class="col-sm-4">Contacto</dt>
+              <dd class="col-sm-8" id="detClienteContacto"></dd>
+              <dt class="col-sm-4">Dirección</dt>
+              <dd class="col-sm-8" id="detClienteDireccion"></dd>
+              <dt class="col-sm-4">Ciudad</dt>
+              <dd class="col-sm-8" id="detClienteCiudad"></dd>
+              <dt class="col-sm-4">País</dt>
+              <dd class="col-sm-8" id="detClientePais"></dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </div>
 </body>
 </html>

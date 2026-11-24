@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Northwind - Historial de Órdenes</title>
+    <title>Northwind - Historial de Órdenes y Logística</title>
     <!-- Bootstrap 5 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <!-- DataTables + Bootstrap 5 CSS -->
@@ -50,34 +50,179 @@
     <main class="container-fluid px-4 py-4">
         <div id="alertContainer403"></div>
 
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        <!-- Encabezado y Resumen -->
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
             <div>
-                <h2 class="fw-bold mb-0">Historial de Órdenes</h2>
-                <small class="text-muted">Consulta de órdenes y logística de envíos (Backend: /api/orders)</small>
+                <h2 class="fw-bold mb-0">Historial de Órdenes y Logística</h2>
+                <small class="text-muted">Consulta comercial de pedidos, estado de envío y fletes logísticos (Solo lectura: <code>/api/orders</code>)</small>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-dark fs-6 px-3 py-2">
+                    Órdenes visibles: <strong id="lblTotalOrdenes">0</strong>
+                </span>
             </div>
         </div>
+
+        <!-- Banner informativo para rol CLIENTE (TASK-F4-04 / REQ-CORE-001) -->
+        <div id="bannerModoCliente" class="alert alert-info d-none shadow-sm mb-3" role="status">
+            <strong>Modo Autoservicio (CLIENTE):</strong> Visualizando las órdenes asociadas a tu cuenta (<span id="lblCuentaClienteActiva" class="fw-bold"></span>). Puedes filtrar tus pedidos o consultar una orden específica por su N° de Orden.
+        </div>
+
+        <!-- Alerta de estado o errores (ej. 404 en búsqueda por ID) -->
+        <div id="alertOrdenes" class="alert alert-warning d-none shadow-sm mb-3" role="alert"></div>
+
+        <!-- Panel de Filtros y Búsqueda por Rol / ID de Orden -->
+        <div class="card shadow-sm border-0 mb-3">
+            <div class="card-body py-3">
+                <div class="row g-3 align-items-end">
+                    <div class="col-12 col-md-4">
+                        <label for="txtBuscarOrden" class="form-label small fw-semibold text-secondary mb-1">
+                            Filtrar por N° Orden, Destinatario, Ciudad o País
+                        </label>
+                        <input type="search" id="txtBuscarOrden" class="form-control form-control-sm"
+                               placeholder="Ej. 10248, Vins et alcools, Reims, France..." autocomplete="off">
+                    </div>
+                    <div class="col-12 col-sm-6 col-md-3">
+                        <label for="selEstadoLogistico" class="form-label small fw-semibold text-secondary mb-1">
+                            Estatus Logístico
+                        </label>
+                        <select id="selEstadoLogistico" class="form-select form-select-sm">
+                            <option value="">Todos los estados</option>
+                            <option value="Entregado">Entregado</option>
+                            <option value="En tránsito">En tránsito</option>
+                            <option value="Pendiente">Pendiente</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-6 col-md-5">
+                        <label for="txtBuscarOrdenId" class="form-label small fw-semibold text-secondary mb-1">
+                            Consulta Directa por N° de Orden (<code>GET /api/orders/{id}</code>)
+                        </label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" id="txtBuscarOrdenId" class="form-control"
+                                   placeholder="Ingresa N° de Orden (ej. 10248)" autocomplete="off">
+                            <button type="button" id="btnBuscarOrdenId" class="btn btn-primary fw-semibold">
+                                Consultar ID
+                            </button>
+                            <button type="button" id="btnLimpiarFiltroOrdenes" class="btn btn-outline-secondary">
+                                Limpiar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabla de Historial de Órdenes -->
         <div class="card shadow-sm border-0">
             <div class="card-body">
-                <table id="tablaPedidos" class="table table-striped table-hover align-middle w-100">
-                    <caption class="visually-hidden">Listado de órdenes Northwind</caption>
-                    <thead class="table-dark">
-                        <tr>
-                            <th>N° Orden</th>
-                            <th>Fecha</th>
-                            <th>Fecha Requerida</th>
-                            <th>Fecha Envío</th>
-                            <th>Flete</th>
-                            <th>Destinatario</th>
-                            <th>Ciudad</th>
-                            <th>País</th>
-                            <th class="text-center">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tbodyPedidos"></tbody>
-                </table>
+                <div class="table-responsive">
+                    <table id="tablaPedidos" class="table table-striped table-hover align-middle w-100">
+                        <caption class="visually-hidden">Listado de órdenes comerciales y logística de envíos Northwind</caption>
+                        <thead class="table-dark">
+                            <tr>
+                                <th>N° Orden</th>
+                                <th>Fecha de Orden</th>
+                                <th>Fecha Requerida</th>
+                                <th>Fecha de Envío</th>
+                                <th>Estatus Logístico</th>
+                                <th>Flete</th>
+                                <th>Destinatario</th>
+                                <th>Ciudad</th>
+                                <th>País</th>
+                                <th class="text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyPedidos"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </main>
+
+    <!-- Modal de Detalle de Envío y Estatus Logístico (TASK-F4-04) -->
+    <div class="modal fade" id="modalDetalleOrden" tabindex="-1" aria-labelledby="modalDetalleOrdenTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title fw-bold" id="modalDetalleOrdenTitulo">
+                        Detalle Logístico de Orden <span id="detOrdenId" class="text-info"></span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center bg-light border rounded p-3 mb-3">
+                        <div>
+                            <span class="text-muted small d-block">Estatus Logístico del Envío</span>
+                            <span id="detOrdenEstatus" class="badge rounded-pill bg-secondary fs-6 mt-1">Pendiente</span>
+                        </div>
+                        <div class="text-md-end mt-2 mt-md-0">
+                            <span class="text-muted small d-block">Costo de Flete Logístico</span>
+                            <strong id="detOrdenFlete" class="fs-5 text-primary">$0.00</strong>
+                        </div>
+                    </div>
+
+                    <h6 class="fw-bold text-secondary border-bottom pb-2 mb-3">Cronología de la Orden</h6>
+                    <div class="row g-3 mb-4">
+                        <div class="col-12 col-sm-4">
+                            <div class="p-2 border rounded bg-white h-100">
+                                <span class="text-muted small d-block">Fecha de Orden</span>
+                                <strong id="detOrdenFecha" class="text-dark">N/A</strong>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-4">
+                            <div class="p-2 border rounded bg-white h-100">
+                                <span class="text-muted small d-block">Fecha Requerida</span>
+                                <strong id="detOrdenRequerida" class="text-dark">N/A</strong>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-4">
+                            <div class="p-2 border rounded bg-white h-100">
+                                <span class="text-muted small d-block">Fecha de Envío</span>
+                                <strong id="detOrdenEnvio" class="text-dark">Pendiente</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6 class="fw-bold text-secondary border-bottom pb-2 mb-3">Destino y Dirección Postal de Entrega</h6>
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <span class="text-muted small d-block">Destinatario</span>
+                            <strong id="detOrdenDestinatario" class="text-dark">-</strong>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <span class="text-muted small d-block">Dirección</span>
+                            <strong id="detOrdenDireccion" class="text-dark">-</strong>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <span class="text-muted small d-block">Ciudad</span>
+                            <span id="detOrdenCiudad" class="fw-semibold text-dark">-</span>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <span class="text-muted small d-block">Región / Estado</span>
+                            <span id="detOrdenRegion" class="fw-semibold text-dark">N/A</span>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <span class="text-muted small d-block">Código Postal</span>
+                            <code id="detOrdenCodigoPostal" class="fw-bold text-dark">N/A</code>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <span class="text-muted small d-block">País</span>
+                            <span id="detOrdenPais" class="fw-semibold text-dark">-</span>
+                        </div>
+                        <div class="col-12">
+                            <div class="p-2 bg-light border rounded small">
+                                <span class="text-muted">Dirección Postal Completa: </span>
+                                <strong id="detOrdenDireccionCompleta" class="text-dark">-</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- jQuery (requerido por DataTables) -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
