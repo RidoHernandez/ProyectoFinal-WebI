@@ -1,9 +1,9 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
 documento: Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
-version: 1.3.0
+version: 1.4.0
 estado_global: IN_PROGRESS
-ultima_actualizacion: 2026-11-23
+ultima_actualizacion: 2026-11-24
 formato_agente: AI-READABLE-TASKS-V1
 referencia_spec: ReqProyectoWEB.md (v1.3.0)
 backend_status: FROZEN_LOCKED
@@ -31,9 +31,9 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | **Fase 1** | Configuracion base y cliente HTTP | 4 | 4 | 0 | 0 | 100% |
 | **Fase 2** | Autenticacion, registro y control de roles | 7 | 7 | 0 | 0 | 100% |
 | **Fase 3** | Gestion de productos y catalogo | 6 | 6 | 0 | 0 | 100% |
-| **Fase 4** | Consulta de clientes y ordenes | 4 | 0 | 0 | 4 | 0% |
+| **Fase 4** | Consulta de clientes y ordenes | 4 | 4 | 0 | 0 | 100% |
 | **Fase 5** | Seguridad en cliente, validaciones Vanilla y buenas practicas | 5 | 0 | 1 | 4 | 15% |
-| **TOTAL** | **Consolidado del Proyecto** | **26** | **17** | **1** | **8** | **65%** |
+| **TOTAL** | **Consolidado del Proyecto** | **26** | **21** | **1** | **4** | **81%** |
 
 ---
 
@@ -280,51 +280,51 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 ### FASE 4: Consulta de Clientes y Ordenes
 
 #### [TASK-F4-01] Servicio de Clientes (`customerService.js`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
-* **Archivos Afectados:** `src/services/customerService.js`
+* **Archivos Afectados:** `src/services/customerService.js`, `src/models/customerModel.js`
 * **Requisitos:** `REQ-CORE-002`, `REQ-SEC-003`
 * **Descripcion:** Crear servicio para consultar los endpoints de clientes (`GET /api/customers` y `GET /api/customers/{id}`).
 * **Criterios de Aceptacion:**
-  * - [ ] Implementar `getAll()`: consume `GET /api/customers`, retornando lista de `CustomerDto` (`customerId`, `companyName`, `contactName`).
-  * - [ ] Implementar `getById(id)`: consume `GET /api/customers/{id}`, retornando el cliente solicitado o lanzando 404.
-  * - [ ] Enfoque estricto de solo lectura (sin metodos `create`, `update` ni `delete`, reflejando la realidad del backend).
+  * - [x] Implementar `getAll()`: consume `GET /api/customers`, retornando lista de `CustomerDto` (`customerId`, `companyName`, `contactName`).
+  * - [x] Implementar `getById(id)`: consume `GET /api/customers/{id}`, retornando el cliente solicitado o lanzando 404.
+  * - [x] Enfoque estricto de solo lectura (sin metodos `create`, `update` ni `delete`, reflejando la realidad del backend).
 
 #### [TASK-F4-02] Vista y Controlador de Directorio de Clientes (`clientes.html`, `customersController.js`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
-* **Archivos Afectados:** `clientes.html`, `src/controllers/customersController.js`
+* **Archivos Afectados:** `src/views/clientes.html`, `src/controllers/customersController.js`
 * **Requisitos:** `REQ-CORE-002`
 * **Descripcion:** Interfaz para que el personal autorizado consulte el directorio comercial de clientes.
 * **Criterios de Aceptacion:**
-  * - [ ] Protegida con `authGuard(['ADMIN', 'EMPLEADO'])`. Acceso denegado a `CLIENTE` con redireccion a `catalogo.html`.
-  * - [ ] Tabla interactiva con identificador de cliente (5 caracteres), nombre de empresa y nombre de contacto.
-  * - [ ] Buscador instantaneo y paginacion.
-  * - [ ] Modal de detalle para visualizar la ficha basica del cliente seleccionado.
+  * - [x] Protegida con `authGuard(['ADMIN', 'EMPLEADO'])`. Acceso denegado a `CLIENTE` con redireccion a `catalogo.html`.
+  * - [x] Tabla interactiva con identificador de cliente (5 caracteres), nombre de empresa y nombre de contacto.
+  * - [x] Buscador instantaneo y paginacion.
+  * - [x] Modal de detalle para visualizar la ficha basica del cliente seleccionado.
 
 #### [TASK-F4-03] Servicio de Ordenes (`orderService.js`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
-* **Archivos Afectados:** `src/services/orderService.js`
+* **Archivos Afectados:** `src/services/orderService.js`, `src/models/orderModel.js`
 * **Requisitos:** `REQ-CORE-001`, `REQ-SEC-003`
 * **Descripcion:** Crear servicio para consultar las ordenes comerciales del backend (`GET /api/orders` y `GET /api/orders/{id}`).
 * **Criterios de Aceptacion:**
-  * - [ ] Implementar `getAll()`: consume `GET /api/orders`, retornando coleccion de `OrderDto`.
-  * - [ ] Implementar `getById(id)`: consume `GET /api/orders/{id}`, retornando orden con detalle de envio.
-  * - [ ] Contrato de solo lectura conforme a las capacidades congeladas del backend.
+  * - [x] Implementar `getAll()`: consume `GET /api/orders`, retornando coleccion de `OrderDto`.
+  * - [x] Implementar `getById(id)`: consume `GET /api/orders/{id}`, retornando orden con detalle de envio.
+  * - [x] Contrato de solo lectura conforme a las capacidades congeladas del backend.
 
 #### [TASK-F4-04] Vista y Controlador de Historial de Ordenes (`ordenes.html`, `ordersController.js`)
-* **Estado:** `[TODO]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
-* **Archivos Afectados:** `ordenes.html`, `src/controllers/ordersController.js`
+* **Archivos Afectados:** `src/views/ordenes.html`, `src/views/pedidos.html`, `src/controllers/ordersController.js`
 * **Requisitos:** `REQ-CORE-001`
 * **Descripcion:** Vista para consulta de pedidos, estado de envio y fletes logísticos.
 * **Criterios de Aceptacion:**
-  * - [ ] Protegida con `authGuard(['ADMIN', 'EMPLEADO', 'CLIENTE'])`.
-  * - [ ] Para `ADMIN` y `EMPLEADO`: visualizacion de todas las ordenes registradas en el sistema.
-  * - [ ] Para `CLIENTE`: filtrado o busqueda para consultar ordenes asociadas a su cuenta o por identificador de orden.
-  * - [ ] Despliegue de columnas: N° Orden, Fecha de Orden, Fecha de Envio, Flete, Destinatario, Ciudad y Pais.
-  * - [ ] Modal de detalle de envio con direccion postal y estatus logistico (Entregado / En transito / Pendiente).
+  * - [x] Protegida con `authGuard(['ADMIN', 'EMPLEADO', 'CLIENTE'])`.
+  * - [x] Para `ADMIN` y `EMPLEADO`: visualizacion de todas las ordenes registradas en el sistema.
+  * - [x] Para `CLIENTE`: filtrado o busqueda para consultar ordenes asociadas a su cuenta o por identificador de orden.
+  * - [x] Despliegue de columnas: N° Orden, Fecha de Orden, Fecha de Envio, Flete, Destinatario, Ciudad y Pais.
+  * - [x] Modal de detalle de envio con direccion postal y estatus logistico (Entregado / En transito / Pendiente).
 
 ---
 
@@ -403,3 +403,4 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | 2026-11-23 | @planificador | 1.0.0 | Creacion inicial de la estructura WBS y desglose detallado de tareas (`TASK-F1-01` a `TASK-F5-05`) distribuido en las 5 fases del proyecto, con trazabilidad bidireccional contra `ReqProyectoWEB.md` (v1.1.0) y contratos inmutables del backend congelado. |
 | 2026-11-23 | @verifier | 1.2.0 | Completada y verificada al 100% la Fase 2 (`TASK-F2-01` a `TASK-F2-07`): implementacion de `authService.js` (`login`, `register`, `regenerateApiKey`, `logout`, utilidades RBAC y firma de integridad en `sessionStorage`), eliminacion de la llave maestra estatica en frontend, creacion de `authGuard.js` e integracion en controladores y vistas de `src/views/`, interfaz dual de login/registro en `src/views/login.html` y `loginController.js`, adaptacion dinamica de navbar y modal de regeneracion de API Key en `tableHelpers.js`, y suite de pruebas automatizadas (`tests/fase1.test.mjs` y `tests/fase2.test.mjs`, 15/15 tests pasando). |
 | 2026-11-23 | @verifier-f3 | 1.3.0 | Completada y verificada al 100% la Fase 3 (`TASK-F3-01` a `TASK-F3-06`): refactorizacion de `productService.js` (`getAll`, `getSummary`, `getById`, `create`, `update`, `delete`, `discontinue`), validaciones y cotas exactas en `productModel.js` (`validateProduct`, `PRODUCT_CONSTRAINTS`, prevencion de duplicados), vista administrativa RBAC y modal unificado en `src/views/productos.html` y `src/controllers/productsController.js` (restriccion de edicion de precio/stock para `EMPLEADO`, politica de descontinuacion y modal 409 Conflict con accion rapida), vista de catalogo comercial de solo lectura con filtros en tiempo real e indicador de agotados en `src/views/catalogo.html` y `src/controllers/catalogController.js`, y suite de pruebas automatizadas (`tests/fase1.test.mjs`, `tests/fase2.test.mjs`, `tests/fase3.test.mjs`, 21/21 tests pasando). |
+| 2026-11-24 | Antigravity | 1.4.0 | Completada y verificada al 100% la Fase 4 (`TASK-F4-01` a `TASK-F4-04`): utilidades transversales seguras en `src/utils/tableHelpers.js` (`formatDate`, `safeTextRender`, `extractProblemMessage`, `showModal`, `hideModal`, `bindModalDismiss`, `clearTbody`), modelos y servicios estrictamente de solo lectura (`Object.freeze`) con minimizacion DTO y validacion anti-traversal en `src/models/customerModel.js`, `src/services/customerService.js`, `src/models/orderModel.js` y `src/services/orderService.js`, vistas protegidas contra clickjacking (`clientes.html`, `ordenes.html`, `pedidos.html` sincronizadas), controladores RBAC anti-XSS sin `innerHTML` con datos de API (`src/controllers/customersController.js`, `src/controllers/ordersController.js`) con aislamiento y busqueda por N° de orden para `CLIENTE`, y suite `tests/fase4.test.mjs`. |

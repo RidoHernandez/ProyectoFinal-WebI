@@ -1,8 +1,8 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
-version: 1.3.0
+version: 1.4.0
 estado_global: IN_PROGRESS
-ultima_actualizacion: 2026-11-23
+ultima_actualizacion: 2026-11-24
 formato_agente: AI-READABLE-SPEC-V1
 backend_status: FROZEN_LOCKED
 ---
@@ -24,10 +24,10 @@ Este documento esta estructurado para ser analizado y actualizado de forma deter
 | Modulo | ID Modulo | Total Requisitos | Completados | En Progreso | Pendientes | Avance (%) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | Autenticacion y Roles | AUTH | 3 | 3 | 0 | 0 | 100% |
-| Gestion Comercial y Clientes | CORE | 2 | 0 | 2 | 0 | 50% |
+| Gestion Comercial y Clientes | CORE | 2 | 2 | 0 | 0 | 100% |
 | Reglas de Negocio | BIZ | 3 | 3 | 0 | 0 | 100% |
 | Seguridad y Control de Acceso | SEC | 6 | 3 | 3 | 0 | 75% |
-| **TOTAL** | **ALL** | **14** | **9** | **5** | **0** | **82%** |
+| **TOTAL** | **ALL** | **14** | **11** | **3** | **0** | **89%** |
 
 ---
 
@@ -204,24 +204,24 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
 ### Modulo: Gestion Comercial y Clientes (CORE)
 
 #### [REQ-CORE-001] Gestion de Ventas e Historial de Ordenes
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Alta
 * **Descripcion:** Modulo para consulta y visualizacion comercial de ordenes historicas y seguimiento logistico mediante los endpoints de solo lectura `/api/orders` y `/api/orders/{id}` del backend congelado, vinculando la gestion de inventario a traves de productos.
 * **Criterios de Aceptacion:**
   * - [x] **[Backend]** Endpoints `GET /api/orders` y `GET /api/orders/{id}` operativos retornando `OrderDto` optimizados.
-  * - [ ] **[Frontend]** Vista o panel de visualizacion de ordenes con detalle de fechas, destino, direccion y flete.
-  * - [ ] **[Frontend]** Filtro de visualizacion: `ADMIN` y `EMPLEADO` visualizan todas las ordenes; `CLIENTE` visualiza ordenes pertinentes a su cuenta.
+  * - [x] **[Frontend]** Vista o panel de visualizacion de ordenes con detalle de fechas, destino, direccion y flete.
+  * - [x] **[Frontend]** Filtro de visualizacion: `ADMIN` y `EMPLEADO` visualizan todas las ordenes; `CLIENTE` visualiza ordenes pertinentes a su cuenta.
   * - [x] **[Frontend]** Ajuste de existencias de inventario tras despacho comercial mediante `PUT /api/Products/{id}`.
 
 #### [REQ-CORE-002] Directorio y Consulta de Clientes
-* **Estado:** `[IN_PROGRESS]`
+* **Estado:** `[DONE]`
 * **Prioridad:** Media
 * **Descripcion:** Consulta y administracion de clientes mediante `/api/customers` y `/api/customers/{id}`. Dado que el backend expone la entidad cliente como solo lectura, el control de acceso y suspension de clientes se rige por el estado `IsActive` de la cuenta de usuario en autenticacion.
 * **Criterios de Aceptacion:**
   * - [x] **[Backend]** Endpoints `GET /api/customers` y `GET /api/customers/{id}` operativos retornando `CustomerDto` (`CustomerId`, `CompanyName`, `ContactName`).
   * - [x] **[Backend]** Bloqueo de inicio de sesion para usuarios inactivos (`IsActive == false`) en `AuthController.cs`.
-  * - [ ] **[Frontend]** Vista o modal para consulta y busqueda de clientes accesible unicamente para `ADMIN` y `EMPLEADO`.
-  * - [ ] **[Frontend]** Proteccion de ruta: Si un usuario con rol `CLIENTE` intenta acceder al directorio de clientes, es bloqueado y redirigido a `catalogo.html`.
+  * - [x] **[Frontend]** Vista o modal para consulta y busqueda de clientes accesible unicamente para `ADMIN` y `EMPLEADO`.
+  * - [x] **[Frontend]** Proteccion de ruta: Si un usuario con rol `CLIENTE` intenta acceder al directorio de clientes, es bloqueado y redirigido a `catalogo.html`.
 
 ---
 
@@ -344,3 +344,4 @@ Para incorporar un nuevo requisito, agrega el siguiente bloque en el modulo corr
 | 2026-11-23 | Antigravity | ALL | Actualizacion de la ruta oficial del backend congelado a `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH` y recapitulacion tras inspeccion directa de controladores, filtros, DTOs y configuracion (`Program.cs`, `launchSettings.json`, `ApiKeyAttribute.cs`, `AuthController.cs`, `ApiKeysController.cs`, `ProductsController.cs`, `CustomersController.cs`, `OrdersController.cs`). |
 | 2026-11-23 | @verifier | REQ-AUTH-001, REQ-AUTH-002, REQ-AUTH-003, REQ-BIZ-002, REQ-SEC-001, REQ-SEC-005 | Verificacion y cierre de requisitos de Fase 2 (100% de pruebas en `tests/fase1.test.mjs` y `tests/fase2.test.mjs`): autenticacion exclusiva mediante `/api/auth/login` y `/api/auth/register` (eliminando uso de llave maestra estatica en frontend), mapeo RBAC determinista (`ADMIN`, `EMPLEADO` con whitelist y prefijo `emp_*`, `CLIENTE`) con firma de integridad en `sessionStorage`, guardias `authGuard.js` en todas las vistas protegidas de `src/views/`, adaptacion dinamica de interfaz, y regeneracion de API Keys en caliente. |
 | 2026-11-23 | @verifier-f3 | REQ-AUTH-001, REQ-AUTH-002, REQ-CORE-001, REQ-BIZ-001, REQ-BIZ-002, REQ-BIZ-003, REQ-SEC-002, REQ-SEC-003 | Verificacion y cierre de criterios de Fase 3 (21/21 pruebas automatizadas en `tests/fase1.test.mjs`, `tests/fase2.test.mjs` y `tests/fase3.test.mjs`): refactorizacion de `productService.js` (`ProductsSummaryDto`, CRUD completo y `discontinue`), validaciones de cotas exactas y prevencion de duplicados en `productModel.js`, vista administrativa RBAC en `src/views/productos.html` y `src/controllers/productsController.js` (modal unificado Crear/Editar, edicion restringida a precio y existencias para `EMPLEADO`, politica de descontinuacion logica y captura de HTTP `409 Conflict` con mensaje de integridad historica y accion rapida), y vista de catalogo comercial de solo lectura con filtros en tiempo real e indicador de productos agotados en `src/views/catalogo.html` y `src/controllers/catalogController.js`. |
+| 2026-11-24 | Antigravity | REQ-CORE-001, REQ-CORE-002, REQ-SEC-003 | Cierre de criterios de Fase 4 (`TASK-F4-01` a `TASK-F4-04`) con 28/28 pruebas pasando en `tests/fase1.test.mjs` a `tests/fase4.test.mjs`: modelos y servicios de solo lectura (`customerModel.js`, `customerService.js`, `orderModel.js`, `orderService.js`) con validacion anti-traversal y minimizacion estricta DTO, vistas anti-clickjacking y de solo lectura (`clientes.html`, `ordenes.html`, `pedidos.html`), y controladores RBAC anti-XSS (`customersController.js`, `ordersController.js`) con modal de detalle de cliente, modal logístico/postal de orden y aislamiento/busqueda por N° de orden para `CLIENTE`. |
