@@ -1,12 +1,12 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
 documento: Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
-version: 1.5.0
+version: 1.7.0
 estado_global: DONE
 ultima_actualizacion: 2026-11-24
 formato_agente: AI-READABLE-TASKS-V1
-referencia_spec: ReqProyectoWEB.md (v1.5.0)
-backend_status: FROZEN_LOCKED
+referencia_spec: ReqProyectoWEB.md (v1.7.0)
+backend_status: EXTENDED_CUSTOMERS_ORDERS_V3
 ---
 
 # Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
@@ -33,7 +33,9 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | **Fase 3** | Gestion de productos y catalogo | 6 | 6 | 0 | 0 | 100% |
 | **Fase 4** | Consulta de clientes y ordenes | 4 | 4 | 0 | 0 | 100% |
 | **Fase 5** | Seguridad en cliente, validaciones Vanilla y buenas practicas | 5 | 5 | 0 | 0 | 100% |
-| **TOTAL** | **Consolidado del Proyecto** | **26** | **26** | **0** | **0** | **100%** |
+| **Fase 6** | Compras de clientes e historial propio de pedidos (Backend + Frontend) | 5 | 5 | 0 | 0 | 100% |
+| **Fase 7** | Clientes unificados, gestion de estados de pedidos y cancelacion con stock | 4 | 4 | 0 | 0 | 100% |
+| **TOTAL** | **Consolidado del Proyecto** | **35** | **35** | **0** | **0** | **100%** |
 
 ---
 
@@ -46,6 +48,8 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | **REQ-AUTH-003** | Alta Exclusiva y Diferenciacion de Empleados | `TASK-F2-03`, `TASK-F2-05`, `TASK-F2-06` |
 | **REQ-CORE-001** | Gestion de Ventas e Historial de Ordenes | `TASK-F3-01`, `TASK-F4-03`, `TASK-F4-04` |
 | **REQ-CORE-002** | Directorio y Consulta de Clientes (Solo Lectura) | `TASK-F4-01`, `TASK-F4-02` |
+| **REQ-CORE-003** | Compra de Productos y Historial Propio de Pedidos del Cliente | `TASK-F6-01`, `TASK-F6-02`, `TASK-F6-03`, `TASK-F6-04`, `TASK-F6-05` |
+| **REQ-CORE-004** | Directorio Unificado de Clientes y Gestion de Estados / Cancelacion de Pedidos | `TASK-F7-01`, `TASK-F7-02`, `TASK-F7-03`, `TASK-F7-04` |
 | **REQ-BIZ-001** | Politica de Descontinuacion vs Eliminacion Fisica (409 Conflict) | `TASK-F1-03`, `TASK-F3-01`, `TASK-F3-03`, `TASK-F3-05` |
 | **REQ-BIZ-002** | Prevencion de Registros Duplicados | `TASK-F2-05`, `TASK-F3-04` |
 | **REQ-BIZ-003** | Validacion de Datos en Servidor y Rangos Permitidos | `TASK-F3-02`, `TASK-F3-04` |
@@ -396,6 +400,114 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 
 ---
 
+### FASE 6: Compras de Clientes e Historial Propio de Pedidos
+
+#### [TASK-F6-01] Backend: Vinculo `orders.UserID`, `POST /api/orders` Transaccional y `GET /api/orders/mine`
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `APIkey/Filters/ApiKeyAttribute.cs`, `APIkey/Models/Order.cs`, `APIkey/Data/ContextDB.cs`, `APIkey/DTOs/OrderDto.cs`, `APIkey/DTOs/CreateOrderDto.cs`, `APIkey/Controllers/OrdersController.cs`, migracion EF Core
+* **Requisitos:** `REQ-CORE-003`
+* **Descripcion:** Extender el backend para registrar ordenes reales asociadas al usuario autenticado por `X-API-KEY` descontando inventario en una transaccion atomica y exponer el historial propio del cliente con detalle de productos.
+* **Criterios de Aceptacion:**
+  * - [x] `ApiKeyAttribute` expone `ClientIdentifier` en `HttpContext.Items`.
+  * - [x] Migracion EF Core agrega `orders.UserID` (FK nullable hacia `users.Id`) y amplia `ShipName` (80), `ShipAddress` (200), `ShipCity` (60) y `ShipCountry` (60).
+  * - [x] `POST /api/orders` valida stock y producto activo, descuenta `UnitsInStock`, inserta `Order` + `OrderDetail` en transaccion y retorna `201 Created`.
+  * - [x] `GET /api/orders/mine` filtra por `UserId` activo e incluye `Items` y `Total`.
+
+#### [TASK-F6-02] Frontend: Extension de `config.js`, `OrderModel` y `orderService`
+* **Estado:** `[DONE]`
+* **Prioridad:** Alta
+* **Archivos Afectados:** `src/api/config.js`, `src/api/httpClient.js`, `src/models/orderModel.js`, `src/services/orderService.js`
+* **Requisitos:** `REQ-CORE-003`
+* **Descripcion:** Soportar `items` y `total` en `OrderModel` y agregar `getMine()` y `create(payload)` en `orderService`.
+* **Criterios de Aceptacion:**
+  * - [x] `ENDPOINTS.ORDERS_MINE` configurado y exportado.
+  * - [x] `OrderModel.fromApiDto` normaliza `items` y `total` de forma segura.
+  * - [x] `orderService.getMine()` y `orderService.create(payload)` implementados sobre `Object.freeze(orderService)`.
+
+#### [TASK-F6-03] Frontend: Confirmacion de Compra en Catálogo vía `POST /api/orders`
+* **Estado:** `[DONE]`
+* **Prioridad:** Alta
+* **Archivos Afectados:** `src/views/catalogo.html`, `src/controllers/catalogController.js`
+* **Requisitos:** `REQ-CORE-003`
+* **Descripcion:** Conectar el modal de compra de `catalogo.html` con `orderService.create`, mostrando el N° de Orden generado y enlace a `pedidos.html`.
+* **Criterios de Aceptacion:**
+  * - [x] `procesarCompraCatalogo` invoca `orderService.create(...)` en lugar de `PUT /api/Products/{id}`.
+  * - [x] Actualiza stock en caché y tarjetas del catalogo al completarse `201 Created`.
+  * - [x] Muestra `#OrderId` en el comprobante y enlace directo a `pedidos.html`.
+
+#### [TASK-F6-04] Frontend: Historial Propio de Pedidos y Desglose de Productos en Modal
+* **Estado:** `[DONE]`
+* **Prioridad:** Alta
+* **Archivos Afectados:** `src/views/pedidos.html`, `src/views/ordenes.html`, `src/controllers/ordersController.js`
+* **Requisitos:** `REQ-CORE-003`
+* **Descripcion:** Cargar `orderService.getMine()` cuando el usuario autenticado es `CLIENTE` y renderizar el desglose de productos comprados dentro de `#modalDetalleOrden`.
+* **Criterios de Aceptacion:**
+  * - [x] `pedidos.html` y `ordenes.html` sincronizadas con seccion segura de productos en `#modalDetalleOrden`.
+  * - [x] `listarOrdenes` consume `orderService.getMine()` para `CLIENTE` y `orderService.getAll()` para `ADMIN`/`EMPLEADO`.
+  * - [x] `populateDetailModal` renderiza producto, cantidad, precio unitario, subtotal y total usando `createElement` + `textContent` (cero `innerHTML`).
+
+#### [TASK-F6-05] Pruebas Automatizadas y Verificacion End-to-End en Vivo
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `tests/fase4.test.mjs`, `tests/catalogoCompra.test.mjs`
+* **Requisitos:** `REQ-CORE-003`
+* **Descripcion:** Actualizar y ampliar pruebas unitarias de frontend y verificar flujo completo contra backend y MySQL en vivo.
+* **Criterios de Aceptacion:**
+  * - [x] Compilacion limpia (`dotnet build`) y migracion aplicada en MySQL.
+  * - [x] Suite `node --test tests/*.test.mjs` pasando al 100%.
+  * - [x] Verificacion en vivo: registro de cliente, compra con `POST /api/orders`, descuento de stock y consulta aislada en `GET /api/orders/mine`.
+
+---
+
+### FASE 7: Clientes Unificados, Gestion de Estados de Pedidos y Cancelacion con Stock
+
+#### [TASK-F7-01] Backend: Directorio Unificado de Clientes (Northwind + Usuarios `CLIENTE`)
+* **Estado:** `[DONE]`
+* **Prioridad:** Alta
+* **Archivos Afectados:** `APIkey/Controllers/CustomersController.cs`
+* **Requisitos:** `REQ-CORE-004`, `REQ-CORE-002`
+* **Descripcion:** Unificar en `GET /api/customers` y `GET /api/customers/{id}` los clientes historicos de Northwind con los usuarios activos registrados en `users` con perfil `CLIENTE` (excluyendo `admin`, `administrador`, `empleado`, `operador`, `ventas` y `emp_*`), generando una clave alfanumerica dinamica determinista basada en iniciales + autoincremento (1 a 5 caracteres) con correo en `CompanyName` y usuario en `ContactName`.
+* **Criterios de Aceptacion:**
+  * - [x] Filtrado estricto de cuentas con perfil `CLIENTE` activas en `users`.
+  * - [x] Algoritmo determinista de clave dinamica (iniciales ASCII + sufijo autoincremental, maximo 5 caracteres, sin colisiones con Northwind ni otros usuarios).
+  * - [x] `GET /api/customers` y `GET /api/customers/{id}` operan sobre la misma lista unificada sin campos ni etiquetas adicionales.
+
+#### [TASK-F7-02] Backend: Columna `orders.Status` y Endpoint `PATCH /api/orders/{id}/status` con Reintegro Atomico de Stock
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `APIkey/Models/Order.cs`, `APIkey/Data/ContextDB.cs`, `APIkey/DTOs/OrderDto.cs`, `APIkey/DTOs/UpdateOrderStatusDto.cs`, `APIkey/Controllers/OrdersController.cs`, migracion EF Core `AddOrderStatus`
+* **Requisitos:** `REQ-CORE-004`
+* **Descripcion:** Persistir el estado explicito de cada orden en base de datos y exponer `PATCH /api/orders/{id}/status` con validaciones RBAC, estado `CANCELADO` irreversible, prohibicion de cancelar pedidos `ENTREGADO` y devolucion atomica de existencias al cancelar.
+* **Criterios de Aceptacion:**
+  * - [x] Migracion EF Core `AddOrderStatus` agrega `orders.Status` (`varchar(30)`) y `OrderDto` retorna el estado efectivo normalizado.
+  * - [x] `ADMIN` puede transicionar entre `PENDIENTE`, `PENDIENTE_ENVIO`, `EN_TRANSITO`, `ENTREGADO` y `CANCELADO`; `EMPLEADO` recibe `403`; `CLIENTE` solo puede cancelar sus propios pedidos activos (`PENDIENTE`, `PENDIENTE_ENVIO`, `EN_TRANSITO`).
+  * - [x] Transiciones desde `CANCELADO` o `ENTREGADO -> CANCELADO` retornan `409 Conflict`.
+  * - [x] Cancelar (por `ADMIN` o `CLIENTE`) devuelve `OrderDetail.Quantity` a `products.UnitsInStock` en una transaccion atomica.
+
+#### [TASK-F7-03] Frontend: Modelo de 5 Estados, `orderService.updateStatus` y Controles RBAC en `pedidos.html` / `ordenes.html`
+* **Estado:** `[DONE]`
+* **Prioridad:** Alta
+* **Archivos Afectados:** `src/models/orderModel.js`, `src/services/orderService.js`, `src/views/pedidos.html`, `src/views/ordenes.html`, `src/controllers/ordersController.js`
+* **Requisitos:** `REQ-CORE-004`
+* **Descripcion:** Soportar los 5 estados logísticos en modelo, servicio, filtros y vistas sincronizadas, incorporando el control de cambio de estado exclusivo para `ADMIN` (con confirmaciones obligatorias) y el boton `Cancelar Compra` para `CLIENTE` (con confirmacion previa).
+* **Criterios de Aceptacion:**
+  * - [x] `ORDER_STATUS` ampliado a 5 estados + `validateOrderStatusTransition` y `canClientCancelStatus` en `orderModel.js`.
+  * - [x] `orderService.updateStatus(id, status)` invoca `PATCH /api/orders/{id}/status`.
+  * - [x] `pedidos.html` y `ordenes.html` sincronizadas con filtro de 5 estados, panel de estado `ADMIN` en modal y tabla, y boton `Cancelar Compra` para `CLIENTE` (cero `innerHTML` en `ordersController.js`).
+
+#### [TASK-F7-04] Pruebas Automatizadas de Fase 7 y Compilacion Backend
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `tests/fase4.test.mjs`, `tests/fase7.test.mjs`
+* **Requisitos:** `REQ-CORE-004`
+* **Descripcion:** Validar mediante pruebas unitarias todas las transiciones, confirmaciones, restricciones RBAC, clientes unificados y compilacion limpia del backend.
+* **Criterios de Aceptacion:**
+  * - [x] `dotnet build` sin errores ni advertencias sobre `APIkey.csproj`.
+  * - [x] Suite completa `node --test tests/*.test.mjs` pasando al 100% (38/38 pruebas).
+
+---
+
 ## 5. Historial de Modificaciones del Plan de Tareas
 
 | Fecha | Agente / Autor | Version | Accion Realizada |
@@ -405,3 +517,5 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | 2026-11-23 | @verifier-f3 | 1.3.0 | Completada y verificada al 100% la Fase 3 (`TASK-F3-01` a `TASK-F3-06`): refactorizacion de `productService.js` (`getAll`, `getSummary`, `getById`, `create`, `update`, `delete`, `discontinue`), validaciones y cotas exactas en `productModel.js` (`validateProduct`, `PRODUCT_CONSTRAINTS`, prevencion de duplicados), vista administrativa RBAC y modal unificado en `src/views/productos.html` y `src/controllers/productsController.js` (restriccion de edicion de precio/stock para `EMPLEADO`, politica de descontinuacion y modal 409 Conflict con accion rapida), vista de catalogo comercial de solo lectura con filtros en tiempo real e indicador de agotados en `src/views/catalogo.html` y `src/controllers/catalogController.js`, y suite de pruebas automatizadas (`tests/fase1.test.mjs`, `tests/fase2.test.mjs`, `tests/fase3.test.mjs`, 21/21 tests pasando). |
 | 2026-11-24 | Antigravity | 1.4.0 | Completada y verificada al 100% la Fase 4 (`TASK-F4-01` a `TASK-F4-04`): utilidades transversales seguras en `src/utils/tableHelpers.js` (`formatDate`, `safeTextRender`, `extractProblemMessage`, `showModal`, `hideModal`, `bindModalDismiss`, `clearTbody`), modelos y servicios estrictamente de solo lectura (`Object.freeze`) con minimizacion DTO y validacion anti-traversal en `src/models/customerModel.js`, `src/services/customerService.js`, `src/models/orderModel.js` y `src/services/orderService.js`, vistas protegidas contra clickjacking (`clientes.html`, `ordenes.html`, `pedidos.html` sincronizadas), controladores RBAC anti-XSS sin `innerHTML` con datos de API (`src/controllers/customersController.js`, `src/controllers/ordersController.js`) con aislamiento y busqueda por N° de orden para `CLIENTE`, y suite `tests/fase4.test.mjs`. |
 | 2026-11-24 | @verifier | 1.5.0 | Completada y verificada al 100% la Fase 5 (`TASK-F5-01` a `TASK-F5-05`, proyecto consolidado 26/26): proteccion contra fuerza bruta en `src/utils/bruteForceProtection.js` e integracion con bloqueo de 15 min, cronometro persistente ante F5 y reto CAPTCHA en `src/views/login.html` y `src/controllers/loginController.js`; utilidades anti-XSS `src/utils/securityUtils.js` (`escapeHtml`, `sanitizeText`, `setSafeText`) y erradicacion total de `innerHTML` en `src/` (0 usos); proteccion anti-clickjacking (`frame-ancestors 'none'` y `window.top !== window.self`) en todas las vistas `src/views/*.html`; higiene de `sessionStorage`/`localStorage` y `logout()` seguro en `src/api/httpClient.js` y `src/services/authService.js`; auditoria estatica (0 endpoints inexistentes, 0 rutas rotas, importacion limpia de modulos ES) y suite existente 28/28 pasando (`tests/fase1.test.mjs` a `tests/fase4.test.mjs`). |
+| 2026-11-24 | Antigravity | 1.6.0 | Completada y verificada al 100% la Fase 6 (`TASK-F6-01` a `TASK-F6-05`, 31/31 tareas): vinculacion de ordenes en MySQL (`orders.UserID` y columnas de envio ampliadas mediante migracion EF Core `AddOrderUserIdAndWidenShipFields`), `POST /api/orders` transaccional y `GET /api/orders/mine` con `Items` y `Total` en `OrdersController.cs`, integracion en `orderModel.js`, `orderService.js`, `catalogController.js` y `ordersController.js` (`pedidos.html` / `ordenes.html`), 32/32 pruebas unitarias pasando y verificacion E2E en vivo exitosa. |
+| 2026-11-24 | Antigravity | 1.7.0 | Completada y verificada al 100% la Fase 7 (`TASK-F7-01` a `TASK-F7-04`, 35/35 tareas): directorio unificado de clientes en `CustomersController.cs` (Northwind + usuarios `CLIENTE` con clave dinamica determinista), migracion EF Core `AddOrderStatus` (`orders.Status`) y endpoint `PATCH /api/orders/{id}/status` en `OrdersController.cs` con reintegro atomico de stock y estado `CANCELADO` irreversible, controles RBAC y confirmaciones en `orderModel.js`, `orderService.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`, `dotnet build` limpio y 38/38 pruebas pasando (`tests/fase1.test.mjs` a `tests/fase7.test.mjs`). |

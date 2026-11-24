@@ -33,6 +33,7 @@ export const APIKEYS_REGENERATE = '/apikeys/regenerate';
 export const PRODUCTS = '/Products';
 export const CUSTOMERS = '/customers';
 export const ORDERS = '/orders';
+export const ORDERS_MINE = '/orders/mine';
 
 export const ENDPOINTS = Object.freeze({
     AUTH_LOGIN,
@@ -40,7 +41,8 @@ export const ENDPOINTS = Object.freeze({
     APIKEYS_REGENERATE,
     PRODUCTS,
     CUSTOMERS,
-    ORDERS
+    ORDERS,
+    ORDERS_MINE
 });
 
 export const PUBLIC_ENDPOINTS = Object.freeze([

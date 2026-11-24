@@ -1,10 +1,10 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
-version: 1.5.0
+version: 1.7.0
 estado_global: DONE
 ultima_actualizacion: 2026-11-24
 formato_agente: AI-READABLE-SPEC-V1
-backend_status: FROZEN_LOCKED
+backend_status: EXTENDED_CUSTOMERS_ORDERS_V3
 ---
 
 # Especificacion de Requisitos del Sistema y Arquitectura de Seguridad
@@ -13,7 +13,7 @@ backend_status: FROZEN_LOCKED
 Este documento esta estructurado para ser analizado y actualizado de forma determinista por cualquier agente del enjambre. Al interactuar con este archivo o ejecutar tareas sobre el proyecto, respeta estrictamente las siguientes directrices:
 1. **Identificadores Unicos Inmutables:** Nunca modifiques el ID de un requisito existente (`REQ-[MODULO]-[NUMERO]`). Los correlativos identifican contractualmente cada compromiso del sistema.
 2. **Estados Validos:** Utiliza unicamente las etiquetas estandarizadas `[TODO]`, `[IN_PROGRESS]`, `[REVIEW]`, `[DONE]`, `[BLOCKED]`.
-3. **Backend 100% Congelado (Inmutable):** El codigo fuente, modelos, base de datos y endpoints en `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH` estan estrictamente congelados y NO se pueden modificar bajo ninguna circunstancia. Toda solucion, restriccion de roles, interfaz y control de acceso debe implementarse y resolverse en la capa frontend (Vanilla JavaScript / HTML5 / CSS3).
+3. **Evolucion Controlada del Backend:** El backend ASP.NET Core en `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH` mantiene congelados los controladores `Auth`, `ApiKeys` y `Products`, y se extiende de forma controlada en `CustomersController` (directorio unificado de clientes Northwind + usuarios activos con perfil `CLIENTE`) y en `OrdersController` (`POST /api/orders`, `GET /api/orders/mine` y `PATCH /api/orders/{id}/status` con migraciones EF Core para `orders.UserID` y `orders.Status`, y reintegro atomico de inventario al cancelar).
 4. **Actualizacion de Progreso:** Al marcar una subtarea como completada (`- [x]`), recalcula el porcentaje en la seccion "Resumen de Progreso" y actualiza el estado del requisito padre.
 5. **Registro de Cambios:** Documenta cualquier modificacion estructural, de criterios o de estado en la seccion final "Historial de Cambios del Agente".
 
@@ -24,10 +24,10 @@ Este documento esta estructurado para ser analizado y actualizado de forma deter
 | Modulo | ID Modulo | Total Requisitos | Completados | En Progreso | Pendientes | Avance (%) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | Autenticacion y Roles | AUTH | 3 | 3 | 0 | 0 | 100% |
-| Gestion Comercial y Clientes | CORE | 2 | 2 | 0 | 0 | 100% |
+| Gestion Comercial y Clientes | CORE | 4 | 4 | 0 | 0 | 100% |
 | Reglas de Negocio | BIZ | 3 | 3 | 0 | 0 | 100% |
 | Seguridad y Control de Acceso | SEC | 6 | 6 | 0 | 0 | 100% |
-| **TOTAL** | **ALL** | **14** | **14** | **0** | **0** | **100%** |
+| **TOTAL** | **ALL** | **16** | **16** | **0** | **0** | **100%** |
 
 ---
 
@@ -52,13 +52,16 @@ El backend ASP.NET Core (`APIkey`, .NET 8 / MySQL en `C:\Users\yalan\Documentos\
 
 ### 3.4. CustomersController (`/api/customers`)
 * Protegido por filtro `[ApiKey]`.
-* `GET /api/customers`: Retorna `List<CustomerDto>` (`CustomerId`, `CompanyName`, `ContactName`). **Solo lectura (No existen endpoints POST, PUT ni DELETE en el backend).**
-* `GET /api/customers/{id}`: Retorna `CustomerDto` por identificador alfanumerico (5 caracteres) o `404 Not Found`.
+* `GET /api/customers`: Retorna `List<CustomerDto>` (`CustomerId`, `CompanyName`, `ContactName`) unificando los clientes historicos de Northwind (`customers`) y los usuarios activos registrados en `users` con perfil `CLIENTE` (excluyendo `admin`, `administrador`, `empleado`, `operador`, `ventas` y prefijo `emp_*`). Para los usuarios registrados se mapea `CompanyName = Email`, `ContactName = Username` y se genera dinamicamente una clave alfanumerica determinista (1 a 5 caracteres) basada en iniciales + numero autoincremental evitando duplicados con Northwind u otros usuarios. **Solo lectura (No existen endpoints POST, PUT ni DELETE en el backend).**
+* `GET /api/customers/{id}`: Retorna `CustomerDto` por identificador alfanumerico (Northwind o clave dinamica generada para usuario `CLIENTE`) o `404 Not Found`.
 
 ### 3.5. OrdersController (`/api/orders`)
-* Protegido por filtro `[ApiKey]`.
-* `GET /api/orders`: Retorna `List<OrderDto>` (`OrderId`, `OrderDate`, `RequiredDate`, `ShippedDate`, `Freight`, `ShipName`, `ShipAddress`, `ShipCity`, `ShipRegion`, `ShipPostalCode`, `ShipCountry`). **Solo lectura (No existen endpoints POST, PUT ni DELETE en el backend).**
-* `GET /api/orders/{id}`: Retorna `OrderDto` por ID numerico o `404 Not Found`.
+* Protegido por filtro `[ApiKey]`, el cual adjunta `ClientIdentifier` en `HttpContext.Items` cuando la solicitud usa una API Key emitida por `users` / `api_keys`.
+* `GET /api/orders`: Retorna `List<OrderDto>` (`OrderId`, `OrderDate`, `RequiredDate`, `ShippedDate`, `Freight`, `ShipName`, `ShipAddress`, `ShipCity`, `ShipCountry`, `Status`, `Total`, `Items`).
+* `GET /api/orders/mine`: Resuelve el usuario activo asociado a la `X-API-KEY` (`ClientIdentifier -> UserId`) y retorna unicamente las ordenes propias (`Order.UserId == user.Id`) ordenadas de forma descendente por `OrderId`, incluyendo `Status`, `Items` (`OrderItemDto`: `ProductId`, `ProductName`, `UnitPrice`, `Quantity`, `Subtotal`) y `Total`.
+* `GET /api/orders/{id}`: Retorna `OrderDto` con `Status`, desglose `Items` y `Total` por ID numerico, o `404 Not Found`.
+* `POST /api/orders`: Recibe `CreateOrderDto` (`Items`: lista de `{ ProductId, Quantity >= 1 }`, `ShipName`, `ShipAddress`, `ShipCity`, `ShipCountry`). Ejecuta una transaccion atomica en MySQL: resuelve el `UserId` autenticado, valida existencia, vigencia (`!Discontinued`) y stock suficiente (`UnitsInStock >= Quantity`), descuenta existencias en `products`, inserta el registro en `orders` (vinculado a `UserID` con `Status = "PENDIENTE"`) y sus filas en `order details`, y retorna `201 Created` con el `OrderDto` completo.
+* `PATCH /api/orders/{id}/status`: Recibe `UpdateOrderStatusDto` (`Status`: `PENDIENTE`, `PENDIENTE_ENVIO`, `EN_TRANSITO`, `ENTREGADO`, `CANCELADO`). Permite a `ADMIN` gestionar transiciones de estado y a `CLIENTE` cancelar unicamente sus propios pedidos si estan en `PENDIENTE`, `PENDIENTE_ENVIO` o `EN_TRANSITO` (`EMPLEADO` recibe `403 Forbidden`). Rechaza con `409 Conflict` cancelar un pedido `ENTREGADO` o modificar un pedido ya `CANCELADO` (estado final irreversible). Al pasar a `CANCELADO`, ejecuta una transaccion atomica que devuelve `OrderDetail.Quantity` a `products.UnitsInStock`.
 
 ### 3.6. Controladores Inexistentes en Backend
 * **Categorias y Proveedores:** NO existen `CategoriesController` ni `SuppliersController` en el backend. Las vistas que los requieran deben operar mediante cache local, catalogos estaticos de referencia o fallback silencioso ya previsto en `categoryService.js` y `supplierService.js`.
@@ -117,8 +120,11 @@ Dado que la tabla `users` en base de datos no contiene una columna de rol mutabl
 | **Eliminar Producto (API)** | `/api/Products/{id}` | DELETE | ✅ (Restringido) | ❌ | ❌ |
 | **Directorio de Clientes (API)** | `/api/customers` | GET | ✅ | ✅ | ❌ |
 | **Detalle de Cliente (API)** | `/api/customers/{id}` | GET | ✅ | ✅ | ❌ |
-| **Listar Ordenes (API)** | `/api/orders` | GET | ✅ | ✅ | ✅ (Filtradas) |
+| **Listar Ordenes (API)** | `/api/orders` | GET | ✅ | ✅ | ❌ (Usa `/mine`) |
+| **Mis Ordenes (API)** | `/api/orders/mine` | GET | ✅ | ✅ | ✅ (Propias) |
+| **Crear Orden / Compra (API)** | `/api/orders` | POST | ✅ | ✅ | ✅ |
 | **Detalle de Orden (API)** | `/api/orders/{id}` | GET | ✅ | ✅ | ✅ (Propia) |
+| **Cambiar Estado / Cancelar Orden (API)** | `/api/orders/{id}/status` | PATCH | ✅ (5 estados) | ❌ (403) | ✅ (Solo cancelar propia activa) |
 
 ---
 
@@ -222,6 +228,29 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
   * - [x] **[Backend]** Bloqueo de inicio de sesion para usuarios inactivos (`IsActive == false`) en `AuthController.cs`.
   * - [x] **[Frontend]** Vista o modal para consulta y busqueda de clientes accesible unicamente para `ADMIN` y `EMPLEADO`.
   * - [x] **[Frontend]** Proteccion de ruta: Si un usuario con rol `CLIENTE` intenta acceder al directorio de clientes, es bloqueado y redirigido a `catalogo.html`.
+
+#### [REQ-CORE-003] Compra de Productos y Historial Propio de Pedidos del Cliente
+* **Estado:** `[DONE]`
+* **Prioridad:** Alta
+* **Descripcion:** Permitir al cliente autenticado (`CLIENTE`) confirmar compras desde el modal del catalogo comercial creando una orden real en base de datos (`POST /api/orders`) con descuento atomico de inventario, y consultar automaticamente el historial de sus propios pedidos (`GET /api/orders/mine`) con el detalle de los productos adquiridos en `pedidos.html`.
+* **Criterios de Aceptacion:**
+  * - [x] **[Backend]** Columna `UserID` en `orders` (FK nullable hacia `users.Id`) y ampliacion de columnas de envio (`ShipName`, `ShipAddress`, `ShipCity`, `ShipCountry`) mediante migracion EF Core.
+  * - [x] **[Backend]** `POST /api/orders` transaccional que asocia `UserId` desde la `X-API-KEY`, valida `!Discontinued` y stock suficiente, descuenta `UnitsInStock` en `products`, registra `Order` + `OrderDetail` y retorna `201 Created`.
+  * - [x] **[Backend]** `GET /api/orders/mine` filtrado en servidor por `UserId` de la sesion activa, retornando cada orden con `Items` (`ProductId`, `ProductName`, `UnitPrice`, `Quantity`, `Subtotal`) y `Total`.
+  * - [x] **[Frontend]** Compra desde `catalogo.html` consumiendo `POST /api/orders` (`orderService.create`) y mostrando el `N° de Orden` generado en el comprobante.
+  * - [x] **[Frontend]** Vista `pedidos.html` / `ordersController.js` cargando `GET /api/orders/mine` para `CLIENTE` y mostrando en `#modalDetalleOrden` el desglose de productos comprados y total de la orden.
+
+#### [REQ-CORE-004] Directorio Unificado de Clientes y Gestion de Estados / Cancelacion de Pedidos
+* **Estado:** `[DONE]`
+* **Prioridad:** Alta
+* **Descripcion:** Unificar en `/api/customers` y `clientes.html` los clientes de Northwind con los clientes reales registrados en `users` (perfil `CLIENTE`, clave dinamica de iniciales + autoincremento, correo en Empresa y usuario en Contacto, sin etiquetas adicionales), e implementar el ciclo completo de estados de pedidos (`Pendiente`, `Pendiente de envio`, `En transito`, `Entregado`, `Cancelado`) mediante `PATCH /api/orders/{id}/status`, incluyendo control exclusivo para `ADMIN` con confirmaciones de seguridad y cancelacion por parte del `CLIENTE` (y `ADMIN`) con devolucion atomica de stock y estado final irreversible.
+* **Criterios de Aceptacion:**
+  * - [x] **[Backend]** `CustomersController` (`GET /api/customers` y `GET /api/customers/{id}`) unifica Northwind + usuarios activos con perfil `CLIENTE` (excluyendo `admin`, `administrador`, `empleado`, `operador`, `ventas` y `emp_*`), generando claves dinamicas unicas de iniciales + numero autoincremental (1 a 5 caracteres alfanumericos).
+  * - [x] **[Backend]** Migracion EF Core `AddOrderStatus` agrega columna `orders.Status` (`varchar(30)`) y `OrdersController` expone `Status` en `OrderDto`.
+  * - [x] **[Backend]** `PATCH /api/orders/{id}/status` valida roles (`ADMIN` 5 estados, `EMPLEADO` 403, `CLIENTE` solo cancelacion de pedidos propios activos), impide cancelar pedidos `ENTREGADO` o reactivar pedidos `CANCELADO` (`409 Conflict`), y devuelve atómicamente `UnitsInStock` en transaccion al cancelar.
+  * - [x] **[Frontend]** `clientes.html` muestra la lista unificada en una sola tabla sin etiquetas extra.
+  * - [x] **[Frontend]** `pedidos.html`, `ordenes.html` y `ordersController.js` incorporan filtro de 5 estados, control de cambio de estado exclusivo para `ADMIN` (en tabla y modal) con confirmacion al devolver `En transito`/`Entregado` a `Pendiente` y al cancelar `Pendiente`/`Pendiente de envio`/`En transito`, bloqueo de cancelacion en `Entregado` y bloqueo irreversible en `Cancelado`.
+  * - [x] **[Frontend]** Boton `Cancelar Compra` visible unicamente para `CLIENTE` en sus pedidos propios no entregados ni cancelados, con confirmacion previa obligatoria.
 
 ---
 
@@ -346,3 +375,5 @@ Para incorporar un nuevo requisito, agrega el siguiente bloque en el modulo corr
 | 2026-11-23 | @verifier-f3 | REQ-AUTH-001, REQ-AUTH-002, REQ-CORE-001, REQ-BIZ-001, REQ-BIZ-002, REQ-BIZ-003, REQ-SEC-002, REQ-SEC-003 | Verificacion y cierre de criterios de Fase 3 (21/21 pruebas automatizadas en `tests/fase1.test.mjs`, `tests/fase2.test.mjs` y `tests/fase3.test.mjs`): refactorizacion de `productService.js` (`ProductsSummaryDto`, CRUD completo y `discontinue`), validaciones de cotas exactas y prevencion de duplicados en `productModel.js`, vista administrativa RBAC en `src/views/productos.html` y `src/controllers/productsController.js` (modal unificado Crear/Editar, edicion restringida a precio y existencias para `EMPLEADO`, politica de descontinuacion logica y captura de HTTP `409 Conflict` con mensaje de integridad historica y accion rapida), y vista de catalogo comercial de solo lectura con filtros en tiempo real e indicador de productos agotados en `src/views/catalogo.html` y `src/controllers/catalogController.js`. |
 | 2026-11-24 | Antigravity | REQ-CORE-001, REQ-CORE-002, REQ-SEC-003 | Cierre de criterios de Fase 4 (`TASK-F4-01` a `TASK-F4-04`) con 28/28 pruebas pasando en `tests/fase1.test.mjs` a `tests/fase4.test.mjs`: modelos y servicios de solo lectura (`customerModel.js`, `customerService.js`, `orderModel.js`, `orderService.js`) con validacion anti-traversal y minimizacion estricta DTO, vistas anti-clickjacking y de solo lectura (`clientes.html`, `ordenes.html`, `pedidos.html`), y controladores RBAC anti-XSS (`customersController.js`, `ordersController.js`) con modal de detalle de cliente, modal logístico/postal de orden y aislamiento/busqueda por N° de orden para `CLIENTE`. |
 | 2026-11-24 | @verifier | REQ-SEC-004, REQ-SEC-005, REQ-SEC-006 | Cierre al 100% de Fase 5 y del proyecto (14/14 requisitos `[DONE]`, 28/28 pruebas existentes pasando en `tests/fase1.test.mjs` a `tests/fase4.test.mjs`): proteccion contra clickjacking (`frame-ancestors 'none'` + `window.top !== window.self`) en todas las vistas `src/views/*.html`; prevencion XSS (`src/utils/securityUtils.js` y 0 usos de `innerHTML` en `src/`) e higiene completa de `sessionStorage`/`localStorage` en `httpClient.js` y `authService.js`; proteccion contra fuerza bruta en `src/utils/bruteForceProtection.js`, `src/views/login.html` y `src/controllers/loginController.js` (3 intentos HTTP 401, bloqueo de 15 min persistente ante F5, cronometro MM:SS y reto CAPTCHA); y auditoria estatica limpia sin endpoints inexistentes ni rutas rotas. |
+| 2026-11-24 | Antigravity | REQ-CORE-003 | Extension controlada del backend (`APIkey`) y frontend para compras reales e historial propio de `CLIENTE` (15/15 requisitos `[DONE]`): `ApiKeyAttribute` propaga `ClientIdentifier`; migracion EF Core `AddOrderUserIdAndWidenShipFields` (`orders.UserID` + columnas de envio ampliadas); `POST /api/orders` transaccional y `GET /api/orders/mine` con `Items` y `Total` en `OrdersController.cs`; integracion en `orderModel.js`, `orderService.js`, `catalogController.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`; 32/32 pruebas unitarias y verificacion E2E en vivo contra MySQL exitosas. |
+| 2026-11-24 | Antigravity | REQ-CORE-004 | Extension controlada de clientes unificados y ciclo de estados/cancelacion de pedidos (16/16 requisitos `[DONE]`): `CustomersController.cs` unifica Northwind + cuentas activas `CLIENTE` con clave dinamica determinista (iniciales + autoincremento, correo en Empresa y usuario en Contacto); migracion EF Core `AddOrderStatus` (`orders.Status`); `PATCH /api/orders/{id}/status` en `OrdersController.cs` con RBAC (`ADMIN` 5 estados, `CLIENTE` cancelacion de pedidos propios activos), estado `CANCELADO` irreversible, bloqueo de cancelacion en `ENTREGADO` y reintegro atomico de stock; integracion en `orderModel.js`, `orderService.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`; 38/38 pruebas unitarias (`tests/fase1.test.mjs` a `tests/fase7.test.mjs`) y `dotnet build` sin errores. |
