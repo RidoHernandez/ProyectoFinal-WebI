@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Northwind - Redirección</title>
+    <meta http-equiv="refresh" content="0; url=./views/login.html">
+    <script>
+        if (window.self === window.top) {
+            window.location.href = './views/login.html';
+        }
+    </script>
+</head>
+<body>
+    <p>Redirigiendo a <a href="./views/login.html">Iniciar Sesión</a>...</p>
+</body>
+</html>
