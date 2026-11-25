@@ -5,7 +5,6 @@ import { orderService } from "../services/orderService.js";
 import {
     clearTbody,
     formatCurrency,
-    escapeHtml,
     initNavbar,
     resolveConnectedPermissions,
     setElementVisibility,
@@ -22,7 +21,7 @@ let productos = [];
 /**
  * Normaliza un objeto de producto proveniente del backend (camelCase o PascalCase).
  */
-export function normalizarProductoCatalogo(p = {}) {
+function normalizarProductoCatalogo(p = {}) {
     const productId = p?.productId ?? p?.ProductId ?? '';
     const productName = String(p?.productName ?? p?.ProductName ?? '').trim();
     const rawPrice = p?.unitPrice ?? p?.UnitPrice ?? 0;
@@ -56,7 +55,7 @@ function parsePriceBound(value) {
  * Filtra de forma pura la lista de productos del catálogo por texto (nombre o ID),
  * rango de precios (mínimo y máximo) y disponibilidad de stock.
  */
-export function filtrarProductosCatalogo(
+function filtrarProductosCatalogo(
     lista,
     {
         texto = '',
@@ -94,31 +93,19 @@ export function filtrarProductosCatalogo(
 }
 
 /**
- * Permite establecer o consultar la caché en memoria de productos del catálogo.
- */
-export function setProductosCatalogo(lista) {
-    productos = Array.isArray(lista) ? [...lista] : [];
-    return productos;
-}
-
-export function getProductosCatalogo() {
-    return productos;
-}
-
-/**
  * Renderiza la cuadrícula de tarjetas de productos en #contenedorCatalogo
  * aplicando construcción segura del DOM y escape HTML contra XSS.
  */
-export function renderizarTarjetas(lista, doc = typeof document !== 'undefined' ? document : null, options = {}) {
+function renderizarTarjetas(lista, doc = typeof document !== 'undefined' ? document : null, options = {}) {
     const items = Array.isArray(lista) ? lista : [];
     if (!options?.esFiltrado && items.length > 0 && productos.length === 0) {
         productos = [...items];
     }
 
-    if (!doc) return '';
+    if (!doc) return;
 
     const contenedor = doc.getElementById('contenedorCatalogo');
-    if (!contenedor) return '';
+    if (!contenedor) return;
 
     const lblContador = doc.getElementById('lblTotalCatalogo');
     if (lblContador) {
@@ -127,21 +114,18 @@ export function renderizarTarjetas(lista, doc = typeof document !== 'undefined' 
 
     clearTbody(contenedor);
 
-    if (items.length === 0) {
-        const emptyHtml = '<div class="col-12"><div class="alert alert-info mb-0">No hay productos disponibles con los criterios seleccionados.</div></div>';
-        if (typeof doc.createElement === 'function') {
-            const colEmpty = doc.createElement('div');
-            colEmpty.className = 'col-12';
-            const alertEmpty = doc.createElement('div');
-            alertEmpty.className = 'alert alert-info mb-0';
-            alertEmpty.textContent = 'No hay productos disponibles con los criterios seleccionados.';
-            colEmpty.appendChild(alertEmpty);
-            contenedor.appendChild(colEmpty);
-        }
-        return emptyHtml;
-    }
+    if (typeof doc.createElement !== 'function') return;
 
-    const htmlCards = [];
+    if (items.length === 0) {
+        const colEmpty = doc.createElement('div');
+        colEmpty.className = 'col-12';
+        const alertEmpty = doc.createElement('div');
+        alertEmpty.className = 'alert alert-info mb-0';
+        alertEmpty.textContent = 'No hay productos disponibles con los criterios seleccionados.';
+        colEmpty.appendChild(alertEmpty);
+        contenedor.appendChild(colEmpty);
+        return;
+    }
 
     for (const rawItem of items) {
         const prod = normalizarProductoCatalogo(rawItem);
@@ -149,12 +133,7 @@ export function renderizarTarjetas(lista, doc = typeof document !== 'undefined' 
         const disponible = stock > 0;
         const agotado = !disponible;
         const descontinuado = prod.discontinued;
-
-        const nombreSeguro = escapeHtml(prod.productName);
-        const idSeguro = escapeHtml(prod.productId);
         const precioFormateado = formatCurrency(prod.unitPrice);
-        const precioSeguro = escapeHtml(precioFormateado);
-        const stockSeguro = escapeHtml(stock);
 
         const cardClass = agotado
             ? 'card h-100 shadow-sm card-producto card-agotado border-danger-subtle opacity-75'
@@ -165,98 +144,68 @@ export function renderizarTarjetas(lista, doc = typeof document !== 'undefined' 
         const stockBadgeText = agotado
             ? 'Agotado'
             : `Disponible (Stock: ${stock})`;
-        const stockBadgeTextSeguro = agotado
-            ? 'Agotado'
-            : `Disponible (Stock: ${stockSeguro})`;
 
-        const discBadgeHtml = descontinuado
-            ? '<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle badge-descontinuado">Descontinuado</span>'
-            : '';
+        const colEl = doc.createElement('div');
+        colEl.className = 'col';
 
-        const cardHtml = `
-        <div class="col">
-            <div class="${cardClass}" data-product-id="${idSeguro}" data-stock-status="${agotado ? 'agotado' : 'disponible'}">
-                <div class="card-body d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                        <h5 class="card-title fw-bold text-dark mb-0">${nombreSeguro}</h5>
-                        <span class="badge bg-light text-secondary border">#${idSeguro}</span>
-                    </div>
-                    <p class="card-text text-primary fs-5 fw-semibold mb-3">${precioSeguro}</p>
-                    <div class="mt-auto d-flex flex-wrap justify-content-between align-items-center gap-1">
-                        <span class="${stockBadgeClass}">${stockBadgeTextSeguro}</span>${discBadgeHtml}
-                    </div>
-                </div>
-            </div>
-        </div>`;
+        const cardEl = doc.createElement('div');
+        cardEl.className = cardClass;
+        cardEl.setAttribute('data-product-id', String(prod.productId));
+        cardEl.setAttribute('data-stock-status', agotado ? 'agotado' : 'disponible');
+        cardEl.setAttribute('role', 'button');
+        cardEl.setAttribute('tabindex', '0');
+        cardEl.setAttribute('aria-label', `Ver detalle de ${prod.productName}`);
 
-        htmlCards.push(cardHtml);
+        const bodyEl = doc.createElement('div');
+        bodyEl.className = 'card-body d-flex flex-column';
 
-        if (typeof doc.createElement === 'function') {
-            const colEl = doc.createElement('div');
-            colEl.className = 'col';
+        const headerEl = doc.createElement('div');
+        headerEl.className = 'd-flex justify-content-between align-items-start gap-2 mb-2';
 
-            const cardEl = doc.createElement('div');
-            cardEl.className = cardClass;
-            cardEl.setAttribute('data-product-id', String(prod.productId));
-            cardEl.setAttribute('data-stock-status', agotado ? 'agotado' : 'disponible');
-            cardEl.setAttribute('role', 'button');
-            cardEl.setAttribute('tabindex', '0');
-            cardEl.setAttribute('aria-label', `Ver detalle de ${prod.productName}`);
+        const titleEl = doc.createElement('h5');
+        titleEl.className = 'card-title fw-bold text-dark mb-0';
+        titleEl.textContent = prod.productName;
 
-            const bodyEl = doc.createElement('div');
-            bodyEl.className = 'card-body d-flex flex-column';
+        const idBadgeEl = doc.createElement('span');
+        idBadgeEl.className = 'badge bg-light text-secondary border';
+        idBadgeEl.textContent = `#${prod.productId}`;
 
-            const headerEl = doc.createElement('div');
-            headerEl.className = 'd-flex justify-content-between align-items-start gap-2 mb-2';
+        headerEl.appendChild(titleEl);
+        headerEl.appendChild(idBadgeEl);
 
-            const titleEl = doc.createElement('h5');
-            titleEl.className = 'card-title fw-bold text-dark mb-0';
-            titleEl.textContent = prod.productName;
+        const priceEl = doc.createElement('p');
+        priceEl.className = 'card-text text-primary fs-5 fw-semibold mb-3';
+        priceEl.textContent = precioFormateado;
 
-            const idBadgeEl = doc.createElement('span');
-            idBadgeEl.className = 'badge bg-light text-secondary border';
-            idBadgeEl.textContent = `#${prod.productId}`;
+        const footerEl = doc.createElement('div');
+        footerEl.className = 'mt-auto d-flex flex-wrap justify-content-between align-items-center gap-1';
 
-            headerEl.appendChild(titleEl);
-            headerEl.appendChild(idBadgeEl);
+        const stockBadgeEl = doc.createElement('span');
+        stockBadgeEl.className = stockBadgeClass;
+        stockBadgeEl.textContent = stockBadgeText;
+        footerEl.appendChild(stockBadgeEl);
 
-            const priceEl = doc.createElement('p');
-            priceEl.className = 'card-text text-primary fs-5 fw-semibold mb-3';
-            priceEl.textContent = precioFormateado;
-
-            const footerEl = doc.createElement('div');
-            footerEl.className = 'mt-auto d-flex flex-wrap justify-content-between align-items-center gap-1';
-
-            const stockBadgeEl = doc.createElement('span');
-            stockBadgeEl.className = stockBadgeClass;
-            stockBadgeEl.textContent = stockBadgeText;
-            footerEl.appendChild(stockBadgeEl);
-
-            if (descontinuado) {
-                const discBadgeEl = doc.createElement('span');
-                discBadgeEl.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle badge-descontinuado';
-                discBadgeEl.textContent = 'Descontinuado';
-                footerEl.appendChild(discBadgeEl);
-            }
-
-            bodyEl.appendChild(headerEl);
-            bodyEl.appendChild(priceEl);
-            bodyEl.appendChild(footerEl);
-            cardEl.appendChild(bodyEl);
-            colEl.appendChild(cardEl);
-            contenedor.appendChild(colEl);
+        if (descontinuado) {
+            const discBadgeEl = doc.createElement('span');
+            discBadgeEl.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle badge-descontinuado';
+            discBadgeEl.textContent = 'Descontinuado';
+            footerEl.appendChild(discBadgeEl);
         }
-    }
 
-    const joinedHtml = htmlCards.join('');
-    return joinedHtml;
+        bodyEl.appendChild(headerEl);
+        bodyEl.appendChild(priceEl);
+        bodyEl.appendChild(footerEl);
+        cardEl.appendChild(bodyEl);
+        colEl.appendChild(cardEl);
+        contenedor.appendChild(colEl);
+    }
 }
 
 /**
  * Configura los eventos de filtrado en tiempo real por texto, rango de precios
  * (mínimo y máximo), interruptor de disponibilidad y botón de limpiar filtros.
  */
-export function configurarFiltrosCatalogo(arg = null, maybeDoc = null) {
+function configurarFiltrosCatalogo(arg = null, maybeDoc = null) {
     let doc = typeof document !== 'undefined' ? document : null;
     if (Array.isArray(arg)) {
         productos = [...arg];
@@ -330,13 +279,11 @@ export function configurarFiltrosCatalogo(arg = null, maybeDoc = null) {
 /**
  * Carga el catálogo comercial invocando productService.getAll() (con respaldo a getProducts()).
  */
-export async function cargarCatalogo(doc = typeof document !== 'undefined' ? document : null) {
+async function cargarCatalogo(doc = typeof document !== 'undefined' ? document : null) {
     const contenedor = doc ? doc.getElementById('contenedorCatalogo') : null;
 
     try {
-        const respuesta = typeof productService.getAll === 'function'
-            ? await productService.getAll()
-            : await productService.getProducts();
+        const respuesta = await productService.getAll();
 
         if (Array.isArray(respuesta)) {
             productos = respuesta;
@@ -373,7 +320,7 @@ export async function cargarCatalogo(doc = typeof document !== 'undefined' ? doc
 /**
  * Valida estrictamente que la cantidad a comprar sea un entero positivo dentro del stock disponible.
  */
-export function validarCantidadCompra(rawValue, maxStock = 0) {
+function validarCantidadCompra(rawValue, maxStock = 0) {
     if (rawValue === null || rawValue === undefined || typeof rawValue === 'boolean' || typeof rawValue === 'object') {
         return { valid: false, error: 'Ingresa una cantidad entera válida (mínimo 1).' };
     }
@@ -403,7 +350,7 @@ export function validarCantidadCompra(rawValue, maxStock = 0) {
 /**
  * Valida los datos básicos de envío del formulario de compra.
  */
-export function validarDatosEnvio(datos = {}) {
+function validarDatosEnvio(datos = {}) {
     const shipName = String(datos?.shipName ?? '').trim();
     const shipAddress = String(datos?.shipAddress ?? '').trim();
     const shipCity = String(datos?.shipCity ?? '').trim();
@@ -477,7 +424,7 @@ function resetValidacionCompra(doc) {
 /**
  * Actualiza en tiempo real el total estimado de compra en el modal.
  */
-export function actualizarTotalCompra(doc = typeof document !== 'undefined' ? document : null) {
+function actualizarTotalCompra(doc = typeof document !== 'undefined' ? document : null) {
     if (!doc) return 0;
     const prodId = doc.getElementById('compraProductoId')?.value;
     const txtCantidad = doc.getElementById('txtCantidadCompra');
@@ -501,7 +448,7 @@ export function actualizarTotalCompra(doc = typeof document !== 'undefined' ? do
 /**
  * Abre el modal de detalle del producto seleccionado y muestra el formulario de compra si la cuenta tiene permiso.
  */
-export function abrirModalProductoCatalogo(productId, doc = typeof document !== 'undefined' ? document : null) {
+function abrirModalProductoCatalogo(productId, doc = typeof document !== 'undefined' ? document : null) {
     if (!doc) return null;
     const prod = findProductoEnCache(productId);
     if (!prod) return null;
@@ -610,7 +557,7 @@ function aplicarFiltrosActivos(doc) {
 /**
  * Valida y procesa la compra del producto seleccionado descontando stock en el servidor.
  */
-export async function procesarCompraCatalogo(event, doc = typeof document !== 'undefined' ? document : null) {
+async function procesarCompraCatalogo(event, doc = typeof document !== 'undefined' ? document : null) {
     event?.preventDefault?.();
     if (!doc) return false;
 
@@ -749,7 +696,7 @@ export async function procesarCompraCatalogo(event, doc = typeof document !== 'u
 /**
  * Configura la apertura del modal al hacer clic/activar tarjetas y los eventos del formulario de compra.
  */
-export function configurarModalCatalogo(doc = typeof document !== 'undefined' ? document : null) {
+function configurarModalCatalogo(doc = typeof document !== 'undefined' ? document : null) {
     if (!doc) return;
 
     const contenedor = doc.getElementById('contenedorCatalogo');
@@ -816,7 +763,7 @@ export function configurarModalCatalogo(doc = typeof document !== 'undefined' ? 
 /**
  * Inicializa la vista de catálogo comercial.
  */
-export async function initCatalogController(doc = typeof document !== 'undefined' ? document : null) {
+async function initCatalogController(doc = typeof document !== 'undefined' ? document : null) {
     if (!doc) return;
 
     const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)

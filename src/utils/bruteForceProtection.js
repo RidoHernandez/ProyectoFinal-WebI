@@ -1,7 +1,7 @@
-export const MAX_FAILED_ATTEMPTS = 3;
-export const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+const MAX_FAILED_ATTEMPTS = 3;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
-export const STORAGE_KEYS_BF = Object.freeze({
+const STORAGE_KEYS_BF = Object.freeze({
     ATTEMPTS: 'login_attempts',
     LOCKOUT_UNTIL: 'lockout_until',
     CAPTCHA_REQUIRED: 'login_captcha_required'

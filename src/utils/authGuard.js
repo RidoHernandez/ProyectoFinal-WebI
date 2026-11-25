@@ -1,21 +1,6 @@
 import { authService, purgeResidualLocalStorage } from "../services/authService.js";
 import { STORAGE_KEYS } from "../api/config.js";
 
-export function consumeAuthFlashError() {
-    try {
-        if (typeof sessionStorage !== 'undefined') {
-            const msg = sessionStorage.getItem(STORAGE_KEYS.AUTH_FLASH_ERROR);
-            if (msg) {
-                sessionStorage.removeItem(STORAGE_KEYS.AUTH_FLASH_ERROR);
-                return msg;
-            }
-        }
-    } catch {
-        // Ignore storage errors
-    }
-    return null;
-}
-
 export function authGuard(requiredPermissions = null) {
     purgeResidualLocalStorage();
 
@@ -68,5 +53,3 @@ export function authGuard(requiredPermissions = null) {
 
     return authService.getCurrentUser();
 }
-
-export default authGuard;

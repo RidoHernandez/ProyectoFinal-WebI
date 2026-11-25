@@ -8,6 +8,7 @@ import {
     safeTextRender,
     initNavbar,
     clearTbody,
+    getDoc,
     setElementVisibility,
     extractProblemMessage,
     showModal,
@@ -21,11 +22,6 @@ const REQUIRED_PERMISSION = 'canViewCustomers';
 
 let customersCache = [];
 let tabla = null;
-
-function getDoc(customDoc = null) {
-    if (customDoc) return customDoc;
-    return typeof document !== 'undefined' ? document : null;
-}
 
 function showCustomersAlert(doc, message = '', visible = Boolean(message)) {
     const alertEl = doc?.getElementById('alertClientes');
@@ -58,37 +54,13 @@ function setDetailModalState(
     }
 }
 
-export function setCustomersCache(lista = []) {
-    customersCache = Array.isArray(lista) ? [...lista] : [];
-    return customersCache;
-}
-
-export function getCustomersCache() {
-    return customersCache;
-}
-
-export function resetCustomersState() {
+function resetCustomersState() {
     customersCache = [];
     tabla = null;
 }
 
-// Filtro puro de clientes por código, empresa o contacto
-export function filtrarClientes(lista = customersCache, termino = '') {
-    if (!Array.isArray(lista)) return [];
-    const query = String(termino ?? '').trim().toLowerCase();
-    if (!query) return [...lista];
-
-    return lista.filter((cliente) => {
-        if (!cliente || typeof cliente !== 'object') return false;
-        const id = String(cliente.customerId ?? '').toLowerCase();
-        const company = String(cliente.companyName ?? '').toLowerCase();
-        const contact = String(cliente.contactName ?? '').toLowerCase();
-        return id.includes(query) || company.includes(query) || contact.includes(query);
-    });
-}
-
 // Renderiza la tabla sin DataTables usando únicamente createElement y textContent (anti-XSS)
-export function renderizarTablaClientesFallback(lista = customersCache, customDoc = null) {
+function renderizarTablaClientesFallback(lista = customersCache, customDoc = null) {
     const doc = getDoc(customDoc);
     if (!doc) return;
 
@@ -175,7 +147,7 @@ function inicializarTabla() {
     }));
 }
 
-export async function listarClientes(customDoc = null) {
+async function listarClientes(customDoc = null) {
     const doc = getDoc(customDoc);
     showCustomersAlert(doc, '', false);
 
@@ -214,7 +186,7 @@ export async function listarClientes(customDoc = null) {
     }
 }
 
-export async function verDetalleCliente(customerId, customDoc = null) {
+async function verDetalleCliente(customerId, customDoc = null) {
     const doc = getDoc(customDoc);
     const validation = validateCustomerId(customerId);
 
@@ -284,7 +256,7 @@ function configurarEventos(doc) {
     }
 }
 
-export async function initCustomersController(customDoc = null) {
+async function initCustomersController(customDoc = null) {
     const doc = getDoc(customDoc);
     if (!doc) return;
 

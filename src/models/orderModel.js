@@ -34,7 +34,7 @@ export const ORDER_STATUS_LIST = Object.freeze([
     ORDER_STATUS.CANCELADO
 ]);
 
-export const CLIENT_CANCELLABLE_STATUSES = Object.freeze([
+const CLIENT_CANCELLABLE_STATUSES = Object.freeze([
     ORDER_STATUS.PENDIENTE.code,
     ORDER_STATUS.PENDIENTE_ENVIO.code,
     ORDER_STATUS.EN_TRANSITO.code

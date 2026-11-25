@@ -5,24 +5,12 @@ import {
     setAuthToken,
     clearAuthToken,
     ENDPOINTS,
-    STORAGE_KEYS
+    STORAGE_KEYS,
+    SENSITIVE_LOCAL_KEYS
 } from "../api/httpClient.js";
 
 const SESSION_INTEGRITY_SALT = 'NW_JWT_SESSION_INTEGRITY_SALT_2026_V4';
 const DEFAULT_TOKEN_TTL_MS = 120 * 60 * 1000;
-const SENSITIVE_LOCAL_KEYS = Object.freeze([
-    STORAGE_KEYS.AUTH_TOKEN,
-    STORAGE_KEYS.AUTH_SESSION,
-    STORAGE_KEYS.AUTH_FLASH_ERROR,
-    'northwind_api_url',
-    'auth_token',
-    'token',
-    'jwt',
-    'access_token',
-    'user',
-    'session',
-    'password'
-]);
 
 const ALLOWED_VIEWS = new Set([
     './productos.html',
@@ -32,7 +20,7 @@ const ALLOWED_VIEWS = new Set([
     './ordenes.html'
 ]);
 
-export const PERMISSION_KEYS = Object.freeze([
+const PERMISSION_KEYS = Object.freeze([
     'canViewProductsAdmin',
     'canCreateProducts',
     'canEditProductDetails',
@@ -46,7 +34,7 @@ export const PERMISSION_KEYS = Object.freeze([
     'canPurchaseCatalog'
 ]);
 
-export function createEmptyPermissions() {
+function createEmptyPermissions() {
     const perms = {};
     for (const key of PERMISSION_KEYS) {
         perms[key] = false;
@@ -54,7 +42,7 @@ export function createEmptyPermissions() {
     return perms;
 }
 
-export function normalizePermissions(raw = null) {
+function normalizePermissions(raw = null) {
     const result = createEmptyPermissions();
     if (!raw || typeof raw !== 'object') {
         return result;
@@ -68,12 +56,12 @@ export function normalizePermissions(raw = null) {
     return result;
 }
 
-export function normalizeDefaultView(rawView) {
+function normalizeDefaultView(rawView) {
     const clean = typeof rawView === 'string' ? rawView.trim() : '';
     return ALLOWED_VIEWS.has(clean) ? clean : './catalogo.html';
 }
 
-export function extractJwtExpirationMs(token) {
+function extractJwtExpirationMs(token) {
     if (!token || typeof token !== 'string') return null;
     const parts = token.trim().split('.');
     if (parts.length !== 3) return null;
@@ -114,7 +102,7 @@ export function purgeResidualLocalStorage() {
     }
 }
 
-export function computeSessionSignature(sessionData) {
+function computeSessionSignature(sessionData) {
     if (!sessionData || typeof sessionData !== 'object') {
         return '';
     }
@@ -150,7 +138,7 @@ export function computeSessionSignature(sessionData) {
     return `sig_${hex1}${hex2}`;
 }
 
-export function verifySessionIntegrity(sessionData) {
+function verifySessionIntegrity(sessionData) {
     if (!sessionData || typeof sessionData !== 'object') {
         return false;
     }
@@ -573,5 +561,3 @@ export const authService = {
         }
     }
 };
-
-export default authService;

@@ -1,38 +1,24 @@
 import {
-    API_BASE_URL,
-    DEFAULT_BASE_URL,
     STORAGE_KEYS,
-    AUTH_LOGIN,
-    AUTH_REGISTER,
-    AUTH_ME,
+    SENSITIVE_LOCAL_KEYS,
     PRODUCTS,
     CUSTOMERS,
     ORDERS,
     ORDERS_MINE,
     ENDPOINTS,
-    getBaseUrl,
     isPublicEndpoint,
     buildApiUrl
 } from './config.js';
 
 export {
-    API_BASE_URL,
-    DEFAULT_BASE_URL,
     STORAGE_KEYS,
-    AUTH_LOGIN,
-    AUTH_REGISTER,
-    AUTH_ME,
+    SENSITIVE_LOCAL_KEYS,
     PRODUCTS,
     CUSTOMERS,
     ORDERS,
     ORDERS_MINE,
-    ENDPOINTS,
-    getBaseUrl,
-    isPublicEndpoint,
-    buildApiUrl
+    ENDPOINTS
 };
-
-export const BASE_URL = getBaseUrl();
 
 const STATUS_ERROR_MESSAGES = Object.freeze({
     400: 'Solicitud inválida. Verifica los datos ingresados.',
@@ -43,7 +29,16 @@ const STATUS_ERROR_MESSAGES = Object.freeze({
     500: 'Ocurrió un error interno en el servidor. Intenta nuevamente más tarde.'
 });
 
-const SENSITIVE_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|https?:\/\/localhost(?::\d+)?)/i;
+const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|https?:\/\/localhost(?::\d+)?)/i;
+
+const GENERIC_HTTP_REASONS = new Set([
+    'bad request',
+    'unauthorized',
+    'forbidden',
+    'not found',
+    'conflict',
+    'internal server error'
+]);
 
 export class ApiError extends Error {
     constructor(problemDetails) {
@@ -58,13 +53,50 @@ export class ApiError extends Error {
     }
 }
 
-function sanitizeMessage(text, fallback) {
+function sanitizeMessage(text, fallback = '') {
     if (!text || typeof text !== 'string') return fallback;
     const trimmed = text.trim();
-    if (!trimmed || SENSITIVE_PATTERN.test(trimmed)) {
+    if (!trimmed || SENSITIVE_ERROR_PATTERN.test(trimmed)) {
         return fallback;
     }
     return trimmed;
+}
+
+function pickSafeNonGenericMessage(text) {
+    const clean = sanitizeMessage(text, '');
+    if (!clean || GENERIC_HTTP_REASONS.has(clean.toLowerCase())) {
+        return '';
+    }
+    return clean;
+}
+
+export function extractProblemMessage(error, fallback = 'Ocurrió un error al procesar la solicitud.') {
+    if (!error) return fallback;
+
+    const pd = error.problemDetails || error;
+    const status = Number(pd?.status || error?.status) || 0;
+    if (status >= 500) {
+        return STATUS_ERROR_MESSAGES[500];
+    }
+
+    const rawErrors = pd?.errors || error?.errors || null;
+    if (rawErrors && typeof rawErrors === 'object') {
+        const firstFieldMsg = Object.values(rawErrors)
+            .flat()
+            .map((msg) => pickSafeNonGenericMessage(String(msg ?? '')))
+            .find(Boolean);
+        if (firstFieldMsg) return firstFieldMsg;
+    }
+
+    return (
+        pickSafeNonGenericMessage(pd?.detail) ||
+        pickSafeNonGenericMessage(error?.detail) ||
+        pickSafeNonGenericMessage(pd?.message) ||
+        pickSafeNonGenericMessage(error?.message) ||
+        pickSafeNonGenericMessage(pd?.title) ||
+        pickSafeNonGenericMessage(error?.title) ||
+        fallback
+    );
 }
 
 export function normalizeProblemDetails(payload, status = 500) {
@@ -112,7 +144,7 @@ export function normalizeProblemDetails(payload, status = 500) {
     };
 }
 
-export async function parseProblemDetails(response) {
+async function parseProblemDetails(response) {
     let payload = null;
     try {
         const cloned = typeof response.clone === 'function' ? response.clone() : response;
@@ -128,6 +160,28 @@ export async function parseProblemDetails(response) {
         payload = null;
     }
     return normalizeProblemDetails(payload, response.status);
+}
+
+export async function safeParseJson(response) {
+    if (!response || response.status === 204) return null;
+    try {
+        if (typeof response.json === 'function') {
+            return await response.json();
+        }
+        if (typeof response.text === 'function') {
+            const text = await response.text();
+            return text ? JSON.parse(text) : null;
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+export function throwApiError(response, fallbackStatus = 500) {
+    const problemDetails = response?.problemDetails
+        || normalizeProblemDetails(null, response?.status || fallbackStatus);
+    throw new ApiError(problemDetails);
 }
 
 export function getAuthToken() {
@@ -170,20 +224,6 @@ export function setAuthToken(token) {
         // Ignore storage errors
     }
 }
-
-const SENSITIVE_LOCAL_KEYS = Object.freeze([
-    STORAGE_KEYS.AUTH_TOKEN,
-    STORAGE_KEYS.AUTH_SESSION,
-    STORAGE_KEYS.AUTH_FLASH_ERROR,
-    'northwind_api_url',
-    'auth_token',
-    'token',
-    'jwt',
-    'access_token',
-    'user',
-    'session',
-    'password'
-]);
 
 export function clearAuthToken() {
     try {
@@ -287,131 +327,3 @@ export const httpClient = async (endpoint, options = {}) => {
         throw error;
     }
 };
-
-export function ajaxRequest(endpoint, { method = 'GET', body = null, headers = {}, skipAuthRedirect = false } = {}) {
-    return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        const url = buildApiUrl(endpoint);
-        const requestHeaders = buildRequestHeaders(endpoint, headers, body);
-
-        xhr.open(method, url, true);
-        Object.entries(requestHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
-
-        xhr.onload = function () {
-            const isOk = xhr.status >= 200 && xhr.status < 300;
-            let responseData = null;
-            try {
-                responseData = xhr.responseText ? JSON.parse(xhr.responseText) : null;
-            } catch {
-                responseData = xhr.responseText;
-            }
-
-            let problemDetails = null;
-            if (!isOk) {
-                problemDetails = normalizeProblemDetails(
-                    typeof responseData === 'object' ? responseData : { detail: responseData },
-                    xhr.status
-                );
-                if (xhr.status === 401) {
-                    handleUnauthorized(endpoint, { skipAuthRedirect });
-                }
-            }
-
-            resolve({
-                ok: isOk,
-                status: xhr.status,
-                statusText: xhr.statusText,
-                data: responseData,
-                problemDetails,
-                errorMessage: problemDetails?.message || null,
-                text: async () => xhr.responseText,
-                json: async () => responseData
-            });
-        };
-
-        xhr.onerror = function () {
-            reject(new Error('Error de red al comunicarse con el servidor.'));
-        };
-
-        xhr.ontimeout = function () {
-            reject(new Error('Tiempo de espera agotado al comunicarse con el servidor.'));
-        };
-
-        const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
-        if (body && typeof body === 'object' && !isFormData) {
-            xhr.send(JSON.stringify(body));
-        } else {
-            xhr.send(body);
-        }
-    });
-}
-
-export function promiseRequest(endpoint, options = {}) {
-    const url = buildApiUrl(endpoint);
-    const headers = buildRequestHeaders(endpoint, options.headers || {}, options.body);
-    const config = {
-        ...options,
-        headers
-    };
-
-    return fetch(url, config).then(async response => {
-        if (!response.ok) {
-            const problemDetails = await parseProblemDetails(response);
-            if (response.status === 401) {
-                handleUnauthorized(endpoint, options);
-            }
-            throw new ApiError(problemDetails);
-        }
-        return response.status === 204 ? null : response.json();
-    });
-}
-
-export function callbackRequest(endpoint, options = {}, callback) {
-    if (typeof callback !== 'function') {
-        throw new Error('Se requiere una función callback como tercer parámetro.');
-    }
-
-    const url = buildApiUrl(endpoint);
-    const xhr = new XMLHttpRequest();
-    const method = options.method || 'GET';
-    const body = options.body;
-    const requestHeaders = buildRequestHeaders(endpoint, options.headers || {}, body);
-
-    xhr.open(method, url, true);
-    Object.entries(requestHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
-
-    xhr.onload = function () {
-        if (xhr.status >= 200 && xhr.status < 300) {
-            let parsed = null;
-            try {
-                parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null;
-            } catch {
-                parsed = xhr.responseText;
-            }
-            callback(null, parsed);
-        } else {
-            let parsed = null;
-            try {
-                parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null;
-            } catch {
-                parsed = { detail: xhr.responseText };
-            }
-            const problemDetails = normalizeProblemDetails(parsed, xhr.status);
-            if (xhr.status === 401) {
-                handleUnauthorized(endpoint, options);
-            }
-            callback(new ApiError(problemDetails), null);
-        }
-    };
-
-    xhr.onerror = function () {
-        callback(new Error('Fallo de conexión de red al comunicarse con el servidor.'), null);
-    };
-
-    const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
-    if (body && typeof body === 'object' && !isFormData) {
-        xhr.send(JSON.stringify(body));
-    } else {
-        xhr.send(body);
-    }
-}

@@ -1,9 +1,15 @@
 import { escapeHtml } from './securityUtils.js';
+import { extractProblemMessage } from '../api/httpClient.js';
 
-export { escapeHtml };
+export { escapeHtml, extractProblemMessage };
+
+export function getDoc(customDoc = null) {
+    if (customDoc) return customDoc;
+    return typeof document !== 'undefined' ? document : null;
+}
 
 // Traducción oficial de DataTables al español
-export const DT_LANGUAGE_URL = 'https://cdn.datatables.net/plug-ins/2.1.8/i18n/es-MX.json';
+const DT_LANGUAGE_URL = 'https://cdn.datatables.net/plug-ins/2.1.8/i18n/es-MX.json';
 
 // Renderizador seguro para columnas de texto en DataTables (DataTable.render.text() + respaldo escapeHtml)
 export function safeTextRender(fallback = '-') {
@@ -65,54 +71,6 @@ export function formatDate(value, fallback = 'N/A') {
     } catch {
         return dateObj.toISOString().slice(0, 10);
     }
-}
-
-const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|https?:\/\/localhost(?::\d+)?)/i;
-const GENERIC_HTTP_REASONS = new Set([
-    'bad request',
-    'unauthorized',
-    'forbidden',
-    'not found',
-    'conflict',
-    'internal server error'
-]);
-
-function pickSafeMessage(text) {
-    if (!text || typeof text !== 'string') return '';
-    const trimmed = text.trim();
-    if (!trimmed || SENSITIVE_ERROR_PATTERN.test(trimmed)) return '';
-    if (GENERIC_HTTP_REASONS.has(trimmed.toLowerCase())) return '';
-    return trimmed;
-}
-
-// Extrae mensajes seguros desde ApiError / ProblemDetails (RFC 7807)
-export function extractProblemMessage(error, fallback = 'Ocurrió un error al procesar la solicitud.') {
-    if (!error) return fallback;
-
-    const pd = error.problemDetails || error;
-    const status = Number(pd?.status || error?.status) || 0;
-    if (status >= 500) {
-        return 'Ocurrió un error interno en el servidor. Intenta nuevamente más tarde.';
-    }
-
-    const rawErrors = pd?.errors || error?.errors || null;
-    if (rawErrors && typeof rawErrors === 'object') {
-        const firstFieldMsg = Object.values(rawErrors)
-            .flat()
-            .map((msg) => pickSafeMessage(String(msg ?? '')))
-            .find(Boolean);
-        if (firstFieldMsg) return firstFieldMsg;
-    }
-
-    return (
-        pickSafeMessage(pd?.detail) ||
-        pickSafeMessage(error?.detail) ||
-        pickSafeMessage(pd?.message) ||
-        pickSafeMessage(error?.message) ||
-        pickSafeMessage(pd?.title) ||
-        pickSafeMessage(error?.title) ||
-        fallback
-    );
 }
 
 // Formatea un número como moneda USD
@@ -187,7 +145,7 @@ export function showModal(modalEl) {
 }
 
 // Oculta un modal Bootstrap 5 o su respaldo visual directo
-export function hideModal(modalEl) {
+function hideModal(modalEl) {
     if (!modalEl) return;
     if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
         try {
@@ -236,7 +194,7 @@ export function bindModalDismiss(modalEl, onHide = null) {
 }
 
 // Muestra alerta 403 si existe mensaje flash en sessionStorage o parámetro ?error=403 en la URL
-export function renderFlashErrorBanner() {
+function renderFlashErrorBanner() {
     if (typeof document === 'undefined') return null;
 
     let flashMsg = null;

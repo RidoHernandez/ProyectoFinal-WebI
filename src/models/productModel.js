@@ -1,4 +1,4 @@
-export const PRODUCT_CONSTRAINTS = Object.freeze({
+const PRODUCT_CONSTRAINTS = Object.freeze({
     NAME_MIN_LENGTH: 2,
     NAME_MAX_LENGTH: 40,
     PRICE_MIN: 0.01,

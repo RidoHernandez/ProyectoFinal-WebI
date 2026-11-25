@@ -2,13 +2,24 @@ import { authGuard } from "../utils/authGuard.js";
 import { authService } from "../services/authService.js";
 import { productService } from "../services/productService.js";
 import { ProductModel, validateProduct } from "../models/productModel.js";
-import { baseTableOptions, clearTbody, escapeHtml, formatCurrency, initNavbar, resolveConnectedPermissions, safeTextRender } from "../utils/tableHelpers.js";
+import {
+    baseTableOptions,
+    clearTbody,
+    escapeHtml,
+    extractProblemMessage,
+    formatCurrency,
+    getDoc,
+    initNavbar,
+    resolveConnectedPermissions,
+    safeTextRender,
+    setElementVisibility
+} from "../utils/tableHelpers.js";
 
 // Guardia de navegación síncrona como primera instrucción ejecutable
 authGuard('canViewProductsAdmin');
 
 // Mensaje exacto requerido para conflicto HTTP 409 en eliminación física (TASK-F3-05 / REQ-BIZ-001)
-export const CONFLICT_409_MESSAGE =
+const CONFLICT_409_MESSAGE =
     'No se puede eliminar fisicamente el producto porque tiene ordenes historicas vinculadas. Se ha mantenido en el registro para preservar la integridad historica.';
 
 const DEFAULT_FEEDBACK_MESSAGES = Object.freeze({
@@ -33,156 +44,6 @@ let permisosActuales = {
 // Renderiza sólo en modo 'display'; para ordenar/buscar se usa el valor crudo
 const display = (fn) => (data, type, row) => type === 'display' ? fn(data, row) : data;
 
-function getDoc(customDoc = null) {
-    if (customDoc) return customDoc;
-    return typeof document !== 'undefined' ? document : null;
-}
-
-function setElementVisibility(el, visible) {
-    if (!el) return;
-    if (visible) {
-        el.classList?.remove('d-none');
-        el.hidden = false;
-        if (el.style) el.style.display = '';
-    } else {
-        el.classList?.add('d-none');
-        el.hidden = true;
-        if (el.style) el.style.display = 'none';
-    }
-}
-
-// Validación de respaldo en caso de que productModel.validateProduct aún no esté cargado
-function fallbackValidateProduct(dto = {}, { existingProducts = [], excludeProductId = null } = {}) {
-    const errors = [];
-    const fieldErrors = {};
-
-    const rawName = dto?.productName ?? dto?.ProductName ?? '';
-    const trimmedName = typeof rawName === 'string' ? rawName.trim() : String(rawName ?? '').trim();
-
-    if (!trimmedName) {
-        const msg = 'El nombre del producto es obligatorio.';
-        errors.push(msg);
-        fieldErrors.productName = msg;
-    } else if (trimmedName.length < 2 || trimmedName.length > 40) {
-        const msg = 'El nombre del producto debe tener entre 2 y 40 caracteres.';
-        errors.push(msg);
-        fieldErrors.productName = msg;
-    } else if (Array.isArray(existingProducts) && existingProducts.length > 0) {
-        const normalizedTarget = trimmedName.toLowerCase();
-        const excludedId = excludeProductId !== null && excludeProductId !== undefined && excludeProductId !== ''
-            ? Number(excludeProductId)
-            : null;
-        const duplicate = existingProducts.some((item) => {
-            if (!item) return false;
-            const itemId = Number(item.productId ?? item.ProductId);
-            if (excludedId !== null && !Number.isNaN(excludedId) && itemId === excludedId) {
-                return false;
-            }
-            const itemName = String(item.productName ?? item.ProductName ?? '').trim().toLowerCase();
-            return itemName !== '' && itemName === normalizedTarget;
-        });
-        if (duplicate) {
-            const msg = `Ya existe un producto registrado con el nombre "${trimmedName}".`;
-            errors.push(msg);
-            fieldErrors.productName = msg;
-        }
-    }
-
-    const rawPrice = dto?.unitPrice ?? dto?.UnitPrice;
-    const numPrice = (rawPrice === '' || rawPrice === null || rawPrice === undefined || typeof rawPrice === 'boolean')
-        ? NaN
-        : Number(rawPrice);
-    if (!Number.isFinite(numPrice) || numPrice < 0.01 || numPrice > 100000.00) {
-        const msg = 'El precio unitario debe ser un número entre 0.01 y 100,000.00.';
-        errors.push(msg);
-        fieldErrors.unitPrice = msg;
-    }
-
-    const rawStock = dto?.unitsInStock ?? dto?.UnitsInStock;
-    const numStock = (rawStock === '' || rawStock === null || rawStock === undefined || typeof rawStock === 'boolean')
-        ? NaN
-        : Number(rawStock);
-    if (!Number.isFinite(numStock) || !Number.isInteger(numStock) || numStock < 0 || numStock > 32767) {
-        const msg = 'Las unidades en stock deben ser un número entero entre 0 y 32,767.';
-        errors.push(msg);
-        fieldErrors.unitsInStock = msg;
-    }
-
-    const hasDiscontinued = Object.prototype.hasOwnProperty.call(dto || {}, 'discontinued')
-        || Object.prototype.hasOwnProperty.call(dto || {}, 'Discontinued');
-    const rawDiscontinued = dto?.discontinued ?? dto?.Discontinued;
-    if (hasDiscontinued && rawDiscontinued !== undefined && typeof rawDiscontinued !== 'boolean') {
-        const msg = 'El estado descontinuado debe ser un valor booleano (true o false).';
-        errors.push(msg);
-        fieldErrors.discontinued = msg;
-    }
-
-    errors.valid = errors.length === 0;
-    errors.fieldErrors = fieldErrors;
-    return errors;
-}
-
-function executeValidateProduct(dto, options = {}) {
-    const fn = validateProduct || ProductModel.validateProduct || fallbackValidateProduct;
-    const res = fn(dto, options);
-
-    const errors = Array.isArray(res) ? res : (Array.isArray(res?.errors) ? [...res.errors] : []);
-    const fieldErrors = { ...(res?.fieldErrors || {}) };
-
-    // Verificar duplicados en cliente (REQ-BIZ-002) si existingProducts fue provisto y aún no se marcó error en productName
-    const rawName = String(dto?.productName ?? dto?.ProductName ?? '').trim();
-    if (rawName && !fieldErrors.productName && Array.isArray(options.existingProducts)) {
-        const target = rawName.toLowerCase();
-        const excludedId = options.excludeProductId !== null && options.excludeProductId !== undefined && options.excludeProductId !== ''
-            ? Number(options.excludeProductId)
-            : null;
-        const isDup = options.existingProducts.some((p) => {
-            if (!p) return false;
-            const pid = Number(p.productId ?? p.ProductId);
-            if (excludedId !== null && !Number.isNaN(excludedId) && pid === excludedId) return false;
-            const pname = String(p.productName ?? p.ProductName ?? '').trim().toLowerCase();
-            return pname !== '' && pname === target;
-        });
-        if (isDup) {
-            const dupMsg = `Ya existe un producto registrado con el nombre "${rawName}".`;
-            if (!errors.some((e) => String(e).toLowerCase().includes('duplicad') || String(e).toLowerCase().includes('ya existe'))) {
-                errors.push(dupMsg);
-            }
-            fieldErrors.productName = dupMsg;
-        }
-    }
-
-    // Mapear errores por texto si el validador no adjuntó alguna llave de fieldErrors
-    for (const errMsg of errors) {
-        const text = String(errMsg || '');
-        if (!fieldErrors.productName && /nombre|productname|duplicad|ya existe/i.test(text)) {
-            fieldErrors.productName = text;
-        }
-        if (!fieldErrors.unitPrice && /precio|unitprice/i.test(text)) {
-            fieldErrors.unitPrice = text;
-        }
-        if (!fieldErrors.unitsInStock && /stock|existencia|unitsinstock|entero/i.test(text)) {
-            fieldErrors.unitsInStock = text;
-        }
-        if (!fieldErrors.discontinued && /descontinuad|discontinued|booleano/i.test(text)) {
-            fieldErrors.discontinued = text;
-        }
-    }
-
-    errors.valid = errors.length === 0;
-    errors.fieldErrors = fieldErrors;
-    return errors;
-}
-
-export function setProductosCache(lista = []) {
-    productosCache = Array.isArray(lista) ? [...lista] : [];
-    return productosCache;
-}
-
-export function getProductosCache() {
-    return productosCache;
-}
-
 function normalizarPermisosProductos(permisos = permisosActuales) {
     const src = permisos && typeof permisos === 'object' ? permisos : {};
     return {
@@ -196,7 +57,7 @@ function normalizarPermisosProductos(permisos = permisosActuales) {
 }
 
 // Genera los botones de acción de cada fila según las capacidades de UI autorizadas por el backend
-export function renderAccionesProducto(row, permisos = permisosActuales) {
+function renderAccionesProducto(row, permisos = permisosActuales) {
     const idSeguro = escapeHtml(row?.productId ?? row?.ProductId ?? '');
     const p = normalizarPermisosProductos(permisos);
     const yaDescontinuado = Boolean(row?.discontinued ?? row?.Discontinued);
@@ -225,7 +86,7 @@ export function renderAccionesProducto(row, permisos = permisosActuales) {
 }
 
 // Adapta dinámicamente los controles de la vista y del modal según las capacidades de UI autorizadas por el backend
-export function aplicarPermisosProductos(permisos = permisosActuales) {
+function aplicarPermisosProductos(permisos = permisosActuales) {
     permisosActuales = normalizarPermisosProductos(permisos);
     const puedeCrear = permisosActuales.canCreateProducts;
     const puedeEditarDetalles = permisosActuales.canEditProductDetails;
@@ -305,7 +166,7 @@ export function aplicarPermisosProductos(permisos = permisosActuales) {
 }
 
 // Limpia todos los estados de validación del formulario modal (TASK-F3-04)
-export function limpiarValidacionModal(customDoc = null) {
+function limpiarValidacionModal(customDoc = null) {
     const doc = getDoc(customDoc);
     if (!doc) return;
 
@@ -338,7 +199,7 @@ export function limpiarValidacionModal(customDoc = null) {
 }
 
 // Muestra notificación Toast no bloqueante para operaciones de productos (TASK-F3-04 / TASK-F3-05)
-export function mostrarToastProducto(mensaje, tipo = 'success') {
+function mostrarToastProducto(mensaje, tipo = 'success') {
     const doc = getDoc();
     const textoSeguro = String(mensaje || '');
     if (!doc) return null;
@@ -396,7 +257,7 @@ export function mostrarToastProducto(mensaje, tipo = 'success') {
 }
 
 // Renderiza filas en #tbodyProductos cuando DataTables no está cargado (entornos DOM / pruebas unitarias)
-export function renderizarTablaFallback(lista = productosCache, permisos = permisosActuales) {
+function renderizarTablaFallback(lista = productosCache, permisos = permisosActuales) {
     const doc = getDoc();
     if (!doc) return;
 
@@ -491,12 +352,10 @@ export function renderizarTablaFallback(lista = productosCache, permisos = permi
     }
 }
 
-export async function listarProductos() {
+async function listarProductos() {
     const doc = getDoc();
     try {
-        const resultado = typeof productService.getAll === 'function'
-            ? await productService.getAll()
-            : await productService.getProducts();
+        const resultado = await productService.getAll();
 
         productosCache = Array.isArray(resultado)
             ? resultado
@@ -527,7 +386,7 @@ export async function listarProductos() {
     }
 }
 
-export function abrirModalNuevoProducto() {
+function abrirModalNuevoProducto() {
     if (!permisosActuales.canCreateProducts) return false;
     const doc = getDoc();
     if (!doc) return false;
@@ -558,7 +417,7 @@ export function abrirModalNuevoProducto() {
     return true;
 }
 
-export function editarProducto(id) {
+function editarProducto(id) {
     const numericId = Number(id);
     const prod = productosCache.find((p) => Number(p?.productId ?? p?.ProductId) === numericId);
     if (!prod) return null;
@@ -604,27 +463,8 @@ function setFieldInvalidState(inputEl, feedbackEl, message) {
     }
 }
 
-function extractProblemDetailsMessage(errOrResp, fallback = 'Error al guardar el producto.') {
-    const pd = errOrResp?.problemDetails || errOrResp?.data || errOrResp;
-    const rawErrors = pd?.errors || errOrResp?.errors || null;
-    if (rawErrors && typeof rawErrors === 'object') {
-        const first = Object.values(rawErrors).flat().filter(Boolean)[0];
-        if (first && typeof first === 'string') return first.trim();
-    }
-    if (pd?.detail && typeof pd.detail === 'string' && pd.detail.trim() !== '') {
-        return pd.detail.trim();
-    }
-    if (pd?.message && typeof pd.message === 'string' && pd.message.trim() !== '') {
-        return pd.message.trim();
-    }
-    if (pd?.title && typeof pd.title === 'string' && pd.title.trim() !== '') {
-        return pd.title.trim();
-    }
-    return fallback;
-}
-
 // Procesa el alta o edición del producto desde el modal unificado (TASK-F3-04)
-export async function guardarProductoModal(eventOrData = null) {
+async function guardarProductoModal(eventOrData = null) {
     if (eventOrData && typeof eventOrData.preventDefault === 'function') {
         eventOrData.preventDefault();
     }
@@ -697,7 +537,7 @@ export async function guardarProductoModal(eventOrData = null) {
         discontinued: typeof rawDiscontinued === 'boolean' ? rawDiscontinued : Boolean(rawDiscontinued)
     };
 
-    const validationErrors = executeValidateProduct(dtoForValidation, {
+    const validationErrors = validateProduct(dtoForValidation, {
         existingProducts: productosCache,
         excludeProductId: esEdicion ? numericId : null
     });
@@ -749,20 +589,13 @@ export async function guardarProductoModal(eventOrData = null) {
     }
 
     try {
-        let resp;
-        if (esEdicion) {
-            resp = typeof productService.update === 'function'
-                ? await productService.update(numericId, payload)
-                : await productService.updateProduct(numericId, payload);
-        } else {
-            resp = typeof productService.create === 'function'
-                ? await productService.create(payload)
-                : await productService.createProduct(payload);
-        }
+        const resp = esEdicion
+            ? await productService.update(numericId, payload)
+            : await productService.create(payload);
 
         if (resp && resp.ok === false) {
             const status = Number(resp.status || resp.problemDetails?.status) || 400;
-            const errObj = new Error(extractProblemDetailsMessage(resp));
+            const errObj = new Error(extractProblemMessage(resp, 'Error al guardar el producto.'));
             errObj.status = status;
             errObj.problemDetails = resp.problemDetails || resp.data || { status, detail: errObj.message };
             throw errObj;
@@ -784,7 +617,7 @@ export async function guardarProductoModal(eventOrData = null) {
         };
     } catch (err) {
         const status = Number(err?.status || err?.problemDetails?.status) || 400;
-        const friendlyMsg = extractProblemDetailsMessage(err, err?.message || 'No se pudo guardar el producto.');
+        const friendlyMsg = extractProblemMessage(err, 'No se pudo guardar el producto.');
         const pdErrors = err?.problemDetails?.errors || err?.errors || null;
 
         let matchedField = false;
@@ -884,7 +717,7 @@ function ensureConflict409Elements(doc) {
     return { modalEl, alertEl, detalleEl, btnDescontinuar };
 }
 
-export function ocultarConflicto409() {
+function ocultarConflicto409() {
     const doc = getDoc();
     if (!doc) return;
 
@@ -904,7 +737,7 @@ export function ocultarConflicto409() {
 }
 
 // Despliega el modal/alerta dedicado para conflicto 409 con acción rápida de descontinuación (TASK-F3-05)
-export function mostrarConflicto409(id, problemDetails = null) {
+function mostrarConflicto409(id, problemDetails = null) {
     const doc = getDoc();
     if (!doc) return null;
 
@@ -973,7 +806,7 @@ export function mostrarConflicto409(id, problemDetails = null) {
 }
 
 // Descontinúa lógicamente un producto (discontinued = true)
-export async function manejarDescontinuacionProducto(id, prod = null) {
+async function manejarDescontinuacionProducto(id, prod = null) {
     if (!permisosActuales.canDiscontinueProducts) {
         return { ok: false, status: 403, message: 'No tienes permisos para descontinuar productos.' };
     }
@@ -982,23 +815,7 @@ export async function manejarDescontinuacionProducto(id, prod = null) {
     const cachedProd = prod || productosCache.find((p) => Number(p?.productId ?? p?.ProductId) === numericId) || null;
 
     try {
-        if (typeof productService.discontinue === 'function') {
-            await productService.discontinue(numericId, cachedProd);
-        } else {
-            const baseData = cachedProd || (typeof productService.getById === 'function' ? await productService.getById(numericId) : {});
-            const payload = ProductModel.createPayload({
-                productId: numericId,
-                productName: baseData.productName ?? baseData.ProductName ?? 'Producto',
-                unitPrice: baseData.unitPrice ?? baseData.UnitPrice ?? 1,
-                unitsInStock: baseData.unitsInStock ?? baseData.UnitsInStock ?? 0,
-                discontinued: true
-            });
-            if (typeof productService.update === 'function') {
-                await productService.update(numericId, payload);
-            } else {
-                await productService.updateProduct(numericId, payload);
-            }
-        }
+        await productService.discontinue(numericId, cachedProd);
 
         if (cachedProd) {
             cachedProd.discontinued = true;
@@ -1015,7 +832,7 @@ export async function manejarDescontinuacionProducto(id, prod = null) {
             discontinued: true
         };
     } catch (err) {
-        const msg = extractProblemDetailsMessage(err, err?.message || 'No se pudo descontinuar el producto.');
+        const msg = extractProblemMessage(err, 'No se pudo descontinuar el producto.');
         mostrarToastProducto(msg, 'danger');
         return {
             ok: false,
@@ -1026,7 +843,7 @@ export async function manejarDescontinuacionProducto(id, prod = null) {
 }
 
 // Ejecuta eliminación física o captura HTTP 409 Conflict ofreciendo descontinuación lógica
-export async function manejarEliminacionProducto(id, btnElement = null, { skipConfirm = false } = {}) {
+async function manejarEliminacionProducto(id, btnElement = null, { skipConfirm = false } = {}) {
     if (!permisosActuales.canDeleteProducts) {
         return { ok: false, status: 403, message: 'No tienes permisos para eliminar productos.' };
     }
@@ -1049,9 +866,7 @@ export async function manejarEliminacionProducto(id, btnElement = null, { skipCo
     }
 
     try {
-        const resp = typeof productService.delete === 'function'
-            ? await productService.delete(numericId)
-            : await productService.deleteProduct(numericId);
+        const resp = await productService.delete(numericId);
 
         if (resp && resp.ok === false) {
             const status = Number(resp.status || resp.problemDetails?.status) || 500;
@@ -1067,7 +882,7 @@ export async function manejarEliminacionProducto(id, btnElement = null, { skipCo
                 };
             }
 
-            const errObj = new Error(extractProblemDetailsMessage(resp, `No se pudo eliminar (HTTP ${status})`));
+            const errObj = new Error(extractProblemMessage(resp, `No se pudo eliminar (HTTP ${status})`));
             errObj.status = status;
             errObj.problemDetails = resp.problemDetails || null;
             throw errObj;
@@ -1098,7 +913,7 @@ export async function manejarEliminacionProducto(id, btnElement = null, { skipCo
             };
         }
 
-        const msg = extractProblemDetailsMessage(err, err?.message || 'Error al eliminar el producto.');
+        const msg = extractProblemMessage(err, 'Error al eliminar el producto.');
         mostrarToastProducto(msg, 'danger');
         return {
             ok: false,
@@ -1112,9 +927,6 @@ export async function manejarEliminacionProducto(id, btnElement = null, { skipCo
         }
     }
 }
-
-export const eliminarProducto = manejarEliminacionProducto;
-export const descontinuarProducto = manejarDescontinuacionProducto;
 
 function inicializarTabla() {
     if (typeof DataTable === 'undefined') {
@@ -1217,7 +1029,7 @@ function configurarEventos(doc = getDoc()) {
     }
 }
 
-export async function initProductsController(customDoc = null) {
+async function initProductsController(customDoc = null) {
     const doc = getDoc(customDoc);
     if (!doc) return;
 

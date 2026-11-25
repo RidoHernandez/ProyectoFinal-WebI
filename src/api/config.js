@@ -1,5 +1,4 @@
-export const API_BASE_URL = 'https://localhost:7039/api';
-export const DEFAULT_BASE_URL = 'https://localhost:7039';
+const API_BASE_URL = 'https://localhost:7039/api';
 
 export const STORAGE_KEYS = Object.freeze({
     AUTH_TOKEN: 'northwind_jwt_token',
@@ -7,9 +6,23 @@ export const STORAGE_KEYS = Object.freeze({
     AUTH_FLASH_ERROR: 'auth_flash_error'
 });
 
-export const AUTH_LOGIN = '/auth/login';
-export const AUTH_REGISTER = '/auth/register';
-export const AUTH_ME = '/auth/me';
+export const SENSITIVE_LOCAL_KEYS = Object.freeze([
+    STORAGE_KEYS.AUTH_TOKEN,
+    STORAGE_KEYS.AUTH_SESSION,
+    STORAGE_KEYS.AUTH_FLASH_ERROR,
+    'northwind_api_url',
+    'auth_token',
+    'token',
+    'jwt',
+    'access_token',
+    'user',
+    'session',
+    'password'
+]);
+
+const AUTH_LOGIN = '/auth/login';
+const AUTH_REGISTER = '/auth/register';
+const AUTH_ME = '/auth/me';
 export const PRODUCTS = '/Products';
 export const CUSTOMERS = '/customers';
 export const ORDERS = '/orders';
@@ -25,14 +38,7 @@ export const ENDPOINTS = Object.freeze({
     ORDERS_MINE
 });
 
-export const PUBLIC_ENDPOINTS = Object.freeze([
-    AUTH_LOGIN,
-    AUTH_REGISTER,
-    '/api/auth/login',
-    '/api/auth/register'
-]);
-
-export function getBaseUrl() {
+function getBaseUrl() {
     return API_BASE_URL;
 }
 
