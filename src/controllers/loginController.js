@@ -1,6 +1,5 @@
-import { authService } from "../services/authService.js";
-import { extractProblemMessage } from "../api/httpClient.js";
 import {
+    authModel,
     getBruteForceState,
     recordFailedLoginAttempt,
     resetBruteForceState,
@@ -11,7 +10,8 @@ import {
     markCaptchaSolved,
     generateCaptchaChallenge,
     verifyCaptchaAnswer
-} from "../utils/bruteForceProtection.js";
+} from "../models/authModel.js";
+import { extractProblemMessage } from "./uiHelpers.js";
 
 let activeLockoutInterval = null;
 
@@ -34,8 +34,8 @@ function resolveRedirectPath(sessionOrView = null) {
     if (sessionOrView && typeof sessionOrView === 'object' && typeof sessionOrView.defaultView === 'string') {
         return sessionOrView.defaultView;
     }
-    if (typeof authService.getDefaultView === 'function') {
-        return authService.getDefaultView();
+    if (typeof authModel.getDefaultView === 'function') {
+        return authModel.getDefaultView();
     }
     return './catalogo.html';
 }
@@ -45,42 +45,20 @@ function resolveRedirectPath(sessionOrView = null) {
  * Retorna un arreglo con los identificadores lógicos: 'username' | 'email' | 'password'.
  */
 function detectConflictingFields(error) {
-    const conflicts = new Set();
     if (!error) return [];
-
     const pd = error.problemDetails || error;
-    const rawErrors = pd?.errors || error?.errors || null;
-
-    if (rawErrors && typeof rawErrors === 'object') {
-        for (const key of Object.keys(rawErrors)) {
-            if (/user(name)?|usuario/i.test(key)) conflicts.add('username');
-            if (/e-?mail|correo/i.test(key)) conflicts.add('email');
-            if (/pass(word)?|contrase|clave/i.test(key)) conflicts.add('password');
-        }
-    }
-
-    const combinedText = [
+    const text = [
+        ...Object.keys(pd?.errors || error?.errors || {}),
         pd?.detail,
         pd?.message,
-        pd?.title,
-        error?.detail,
-        error?.message,
-        error?.title
-    ]
-        .filter((v) => typeof v === 'string' && v.trim() !== '')
-        .join(' ');
+        error?.message
+    ].filter(Boolean).join(' ');
 
-    if (/usuario|username|user\s*name/i.test(combinedText)) {
-        conflicts.add('username');
-    }
-    if (/correo|e-?mail/i.test(combinedText)) {
-        conflicts.add('email');
-    }
-    if (/contrase[ñn]a|password|clave/i.test(combinedText)) {
-        conflicts.add('password');
-    }
-
-    return Array.from(conflicts);
+    const conflicts = [];
+    if (/user(name)?|usuario/i.test(text)) conflicts.push('username');
+    if (/e-?mail|correo/i.test(text)) conflicts.push('email');
+    if (/pass(word)?|contrase[ñn]a|clave/i.test(text)) conflicts.push('password');
+    return conflicts;
 }
 
 /**
@@ -183,7 +161,7 @@ async function initLoginController() {
     clearActiveLockoutInterval();
 
     // 1. Si el usuario ya tiene sesión válida y activa, redirigir a la vista inicial autorizada por el backend
-    if (authService.isAuthenticated()) {
+    if (authModel.isAuthenticated()) {
         if (typeof window !== 'undefined' && window.location) {
             window.location.href = resolveRedirectPath();
         }
@@ -502,7 +480,7 @@ async function initLoginController() {
         }
 
         try {
-            const session = await authService.login(username, password);
+            const session = await authModel.login(username, password);
             resetBruteForceState();
             clearActiveLockoutInterval();
             if (typeof window !== 'undefined' && window.location) {
@@ -599,7 +577,7 @@ async function initLoginController() {
         }
 
         try {
-            const regResult = await authService.register(username, email, password);
+            const regResult = await authModel.register(username, email, password);
 
             showAlert(alertSuccess, 'Cuenta registrada exitosamente. Redirigiendo al catálogo...');
             if (typeof window !== 'undefined' && window.location) {

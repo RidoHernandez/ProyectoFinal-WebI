@@ -3,16 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="frame-ancestors 'none';">
     <title>Northwind - Redirección</title>
+    <style id="antiClickjack">html { display: none !important; }</style>
     <script>
-        if (window.top !== window.self) {
-            window.top.location = window.self.location;
-        }
+        (function () {
+            var framed = false;
+            try {
+                framed = window.self !== window.top;
+            } catch (e) {
+                framed = true;
+            }
+            if (!framed) {
+                var s = document.getElementById('antiClickjack');
+                if (s) s.remove();
+            } else {
+                document.documentElement.style.setProperty('display', 'none', 'important');
+                try { window.top.location = window.self.location.href; } catch (e) {}
+                try { window.stop(); } catch (e) {}
+                document.addEventListener('DOMContentLoaded', function () {
+                    if (document.body) document.body.remove();
+                });
+            }
+        })();
     </script>
     <meta http-equiv="refresh" content="0; url=./login.html">
     <script>
-        window.location.href = './login.html';
+        if (window.self === window.top) {
+            window.location.href = './login.html';
+        }
     </script>
 </head>
 <body class="bg-light d-flex align-items-center justify-content-center vh-100">

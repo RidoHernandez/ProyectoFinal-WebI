@@ -1,40 +1,41 @@
-const CUSTOMER_ID_PATTERN = /^[A-Za-z0-9]{1,5}$/;
+import { httpClient, ApiError, normalizeProblemDetails, safeParseJson, throwApiError, CUSTOMERS } from "./apiClient.js";
+
+const CUSTOMER_ID_PATTERN = /^[A-Za-z0-9-]{1,20}$/;
 
 export function validateCustomerId(id) {
     const clean = String(id ?? '').trim();
     if (!CUSTOMER_ID_PATTERN.test(clean)) {
-        return {
-            valid: false,
-            error: 'El código de cliente debe ser alfanumérico (1 a 5 caracteres).'
-        };
+        return { valid: false, error: 'El código de cliente no es válido.' };
     }
     return { valid: true, value: clean };
 }
 
-export class CustomerModel {
-    constructor({
-        customerId = '',
-        companyName = '',
-        contactName = ''
-    } = {}) {
-        this.customerId = customerId;
-        this.companyName = companyName;
-        this.contactName = contactName;
-    }
-
-    static fromApiDto(raw = {}) {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-            return new CustomerModel();
+export const customerModel = Object.freeze({
+    async getAll() {
+        const response = await httpClient(CUSTOMERS, { method: 'GET' });
+        if (!response.ok) {
+            throwApiError(response, response.status || 500);
         }
 
-        const customerId = String(raw.customerId ?? raw.CustomerId ?? '').trim();
-        const companyName = String(raw.companyName ?? raw.CompanyName ?? '').trim();
-        const contactName = String(raw.contactName ?? raw.ContactName ?? '').trim();
+        const data = await safeParseJson(response);
+        return Array.isArray(data) ? data : [];
+    },
 
-        return new CustomerModel({
-            customerId,
-            companyName,
-            contactName
-        });
+    async getById(id) {
+        const validation = validateCustomerId(id);
+        if (!validation.valid) {
+            throw new ApiError(normalizeProblemDetails({
+                status: 400,
+                title: 'Código de cliente inválido',
+                detail: validation.error
+            }, 400));
+        }
+
+        const response = await httpClient(`${CUSTOMERS}/${encodeURIComponent(validation.value)}`, { method: 'GET' });
+        if (!response.ok) {
+            throwApiError(response, response.status || 404);
+        }
+
+        return await safeParseJson(response);
     }
-}
+});
