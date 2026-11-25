@@ -1,10 +1,10 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
-version: 1.7.0
+version: 2.0.0
 estado_global: DONE
-ultima_actualizacion: 2026-11-24
+ultima_actualizacion: 2026-11-25
 formato_agente: AI-READABLE-SPEC-V1
-backend_status: EXTENDED_CUSTOMERS_ORDERS_V3
+backend_status: HARDENED_DB_RBAC_V4
 ---
 
 # Especificacion de Requisitos del Sistema y Arquitectura de Seguridad
@@ -13,7 +13,7 @@ backend_status: EXTENDED_CUSTOMERS_ORDERS_V3
 Este documento esta estructurado para ser analizado y actualizado de forma determinista por cualquier agente del enjambre. Al interactuar con este archivo o ejecutar tareas sobre el proyecto, respeta estrictamente las siguientes directrices:
 1. **Identificadores Unicos Inmutables:** Nunca modifiques el ID de un requisito existente (`REQ-[MODULO]-[NUMERO]`). Los correlativos identifican contractualmente cada compromiso del sistema.
 2. **Estados Validos:** Utiliza unicamente las etiquetas estandarizadas `[TODO]`, `[IN_PROGRESS]`, `[REVIEW]`, `[DONE]`, `[BLOCKED]`.
-3. **Evolucion Controlada del Backend:** El backend ASP.NET Core en `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH` mantiene congelados los controladores `Auth`, `ApiKeys` y `Products`, y se extiende de forma controlada en `CustomersController` (directorio unificado de clientes Northwind + usuarios activos con perfil `CLIENTE`) y en `OrdersController` (`POST /api/orders`, `GET /api/orders/mine` y `PATCH /api/orders/{id}/status` con migraciones EF Core para `orders.UserID` y `orders.Status`, y reintegro atomico de inventario al cancelar).
+3. **Seguridad y Menor Exposicion del Backend:** La maxima prioridad del sistema es minimizar la superficie de exposicion del backend ASP.NET Core (`C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH`). Toda autorizacion basada en roles se valida exclusivamente en servidor consultando la tabla `roles` y la relacion `users.RoleId` en MySQL. El frontend (construido unicamente con HTML, JavaScript, Bootstrap, jQuery y DataTables) nunca almacena, calcula ni muestra nombres de roles, nunca permite editar la URL del backend (`https://localhost:7039/api` fija), no expone rutas de la API en textos visibles ni incluye modulo de regeneracion de API Key.
 4. **Actualizacion de Progreso:** Al marcar una subtarea como completada (`- [x]`), recalcula el porcentaje en la seccion "Resumen de Progreso" y actualiza el estado del requisito padre.
 5. **Registro de Cambios:** Documenta cualquier modificacion estructural, de criterios o de estado en la seccion final "Historial de Cambios del Agente".
 
@@ -31,37 +31,36 @@ Este documento esta estructurado para ser analizado y actualizado de forma deter
 
 ---
 
-## 3. Inventario del Backend Congelado y Mapeo de Contratos
+## 3. Inventario del Backend y Mapeo de Contratos (Endurecido v2.0)
 
-El backend ASP.NET Core (`APIkey`, .NET 8 / MySQL en `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH`, ejecutando en `http://localhost:5009` / `https://localhost:7039` con CORS `AllowAll`) expone exclusivamente los siguientes controladores y contratos inmutables:
+El backend ASP.NET Core (`APIkey`, .NET 10 / MySQL en `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH`, ejecutando en `https://localhost:7039`) gestiona autenticacion y autorizacion estrictamente en servidor contra base de datos (`roles` + `users.RoleId`). La migracion `AddRolesAndSeedUsers` crea la tabla `roles` (`1=ADMIN`, `2=EMPLEADO`, `3=CLIENTE`), agrega la FK `users.RoleId` (default `3`) y siembra las cuentas `admin` (ADMIN), `Robe` (EMPLEADO) y `Leo` (EMPLEADO) con hashes PBKDF2-SHA256.
 
 ### 3.1. AuthController (`/api/auth`)
-* `POST /api/auth/register`: Recibe `RegisterDto` (`Username` [Required], `Email` [Required, EmailAddress], `Password` [Required, MinLength(8)]). Valida unicidad de usuario y correo (retorna `400 Bad Request` ProblemDetails si existe duplicado); almacena clave hasheada con PBKDF2 (100,000 iteraciones, SHA256, salt de 16 bytes); genera API Key (`ak_...`) con vigencia de 30 dias. Retorna `201 Created` con `AuthResponseDto` (`UserId`, `Username`, `ApiKey`, `ExpiresAt`).
-* `POST /api/auth/login`: Recibe `LoginDto` (`Username`, `Password`). Valida credenciales contra PBKDF2 en tiempo constante; invalida llaves anteriores activas del usuario; genera nueva API Key activa; retorna `200 OK` con `AuthResponseDto`. Si las credenciales fallan o el usuario tiene `IsActive == false`, retorna `401 Unauthorized` con ProblemDetails generico ("Credenciales invalidas").
+* `POST /api/auth/register`: Recibe `RegisterDto` (`Username`, `Email`, `Password` >= 8). Asigna estrictamente `RoleId = 3` (`CLIENTE`) en servidor, hashea contrasena con PBKDF2-SHA256 (100,000 iteraciones, salt 16 bytes), genera API Key (`ak_...`, vigencia 30 dias) y retorna `201 Created` con `AuthResponseDto` (`UserId`, `Username`, `ApiKey`, `ExpiresAt`, `DefaultView`, `Permissions` — **sin exponer nombres de rol**).
+* `POST /api/auth/login`: Valida credenciales contra PBKDF2 en tiempo constante, lee el rol desde `users.Role` en BD, invalida llaves anteriores activas, genera nueva API Key y retorna `200 OK` con `AuthResponseDto` (`UserId`, `Username`, `ApiKey`, `ExpiresAt`, `DefaultView`, `Permissions` — **sin exponer nombres de rol**).
+* `GET /api/auth/me`: Protegido por `[ApiKey]`. Consulta el usuario activo y su rol en BD en tiempo real y retorna `SessionProfileDto` (`UserId`, `Username`, `DefaultView`, `Permissions`) para sincronizar banderas de interfaz en cliente sin revelar roles.
 
-### 3.2. ApiKeysController (`/api/apikeys`)
-* `POST /api/apikeys/regenerate`: Protegido por filtro `[ApiKey]`. Invalida la API Key actual enviada en la cabecera `X-API-KEY` (buscando su hash SHA256 en la tabla `api_keys`), genera una nueva llave (`ak_...` con vigencia de 30 dias) para el mismo `ClientIdentifier`, y retorna `200 OK` con `ApiKeyCreatedResponseDto` (`Id`, `ClientIdentifier`, `ApiKey`, `CreatedAt`, `IsActive`, `ExpiresAt`). *Nota: La llave maestra estatica `ROBE-LINGO-KEY-1234` no reside en `api_keys`, por lo que intentar regenerarla retorna `401 Unauthorized`.*
+### 3.2. Regeneracion de API Key (Eliminada)
+* El controlador `ApiKeysController` y el endpoint `POST /api/apikeys/regenerate` fueron **eliminados** del backend para reducir la superficie de ataque. Las llaves se emiten unicamente en `/api/auth/login` y `/api/auth/register`, y toda validacion de `X-API-KEY` exige correspondencia con un usuario activo y rol valido en MySQL (sin llave maestra estatica).
 
 ### 3.3. ProductsController (`/api/Products`)
-* Protegido integralmente por filtro `[ApiKey]`.
-* `GET /api/Products`: Retorna `ProductsSummaryDto` (`{ totalProducts: int, products: List<ProductDto> }`). Cada `ProductDto` contiene unicamente `ProductId`, `ProductName`, `UnitPrice`, `UnitsInStock` (no expone `Discontinued` en la proyeccion de lectura).
-* `GET /api/Products/{id}`: Retorna un `ProductDto` especifico o `404 Not Found`.
-* `POST /api/Products`: Recibe `ProductUpsertDto` (`ProductName` [2-40 chars], `UnitPrice` [0.01 - 100,000], `UnitsInStock` [0 - 32,767], `Discontinued` [bool, default `false`]). Retorna `201 Created` con `ProductDto`.
-* `PUT /api/Products/{id}`: Actualiza producto existente con `ProductUpsertDto`. Retorna `204 NoContent` o `404 Not Found`.
-* `DELETE /api/Products/{id}`: Ejecuta eliminacion fisica. Si existen ordenes o detalles referenciados, el backend captura `DbUpdateException` y retorna `409 Conflict` ("Conflicto de integridad referencial").
+* Protegido integralmente por `[ApiKey]` + `[RequireRoles]` validado en BD.
+* `GET /api/Products` y `GET /api/Products/{id}`: Cualquier usuario activo autenticado.
+* `POST /api/Products`: Exclusivo `ADMIN` (en BD). Retorna `403 Forbidden` para otros roles.
+* `PUT /api/Products/{id}`: `ADMIN` (todos los campos) o `EMPLEADO` (en servidor solo actualiza `UnitPrice` y `UnitsInStock`, manteniendo `ProductName` y `Discontinued` intactos). `CLIENTE` recibe `403 Forbidden`.
+* `DELETE /api/Products/{id}`: Exclusivo `ADMIN` (en BD). Retorna `409 Conflict` si existen ordenes vinculadas.
 
 ### 3.4. CustomersController (`/api/customers`)
-* Protegido por filtro `[ApiKey]`.
-* `GET /api/customers`: Retorna `List<CustomerDto>` (`CustomerId`, `CompanyName`, `ContactName`) unificando los clientes historicos de Northwind (`customers`) y los usuarios activos registrados en `users` con perfil `CLIENTE` (excluyendo `admin`, `administrador`, `empleado`, `operador`, `ventas` y prefijo `emp_*`). Para los usuarios registrados se mapea `CompanyName = Email`, `ContactName = Username` y se genera dinamicamente una clave alfanumerica determinista (1 a 5 caracteres) basada en iniciales + numero autoincremental evitando duplicados con Northwind u otros usuarios. **Solo lectura (No existen endpoints POST, PUT ni DELETE en el backend).**
-* `GET /api/customers/{id}`: Retorna `CustomerDto` por identificador alfanumerico (Northwind o clave dinamica generada para usuario `CLIENTE`) o `404 Not Found`.
+* Protegido por `[ApiKey]` y `[RequireRoles(ADMIN, EMPLEADO)]` validado en BD (`CLIENTE` recibe `403 Forbidden`).
+* `GET /api/customers` y `GET /api/customers/{id}`: Unifican clientes historicos de Northwind (`customers`) y usuarios activos con `Role.Name == "CLIENTE"` en base de datos (sin listas blancas por nombre de usuario), generando claves dinamicas unicas de iniciales + autoincremento.
 
 ### 3.5. OrdersController (`/api/orders`)
-* Protegido por filtro `[ApiKey]`, el cual adjunta `ClientIdentifier` en `HttpContext.Items` cuando la solicitud usa una API Key emitida por `users` / `api_keys`.
-* `GET /api/orders`: Retorna `List<OrderDto>` (`OrderId`, `OrderDate`, `RequiredDate`, `ShippedDate`, `Freight`, `ShipName`, `ShipAddress`, `ShipCity`, `ShipCountry`, `Status`, `Total`, `Items`).
-* `GET /api/orders/mine`: Resuelve el usuario activo asociado a la `X-API-KEY` (`ClientIdentifier -> UserId`) y retorna unicamente las ordenes propias (`Order.UserId == user.Id`) ordenadas de forma descendente por `OrderId`, incluyendo `Status`, `Items` (`OrderItemDto`: `ProductId`, `ProductName`, `UnitPrice`, `Quantity`, `Subtotal`) y `Total`.
-* `GET /api/orders/{id}`: Retorna `OrderDto` con `Status`, desglose `Items` y `Total` por ID numerico, o `404 Not Found`.
-* `POST /api/orders`: Recibe `CreateOrderDto` (`Items`: lista de `{ ProductId, Quantity >= 1 }`, `ShipName`, `ShipAddress`, `ShipCity`, `ShipCountry`). Ejecuta una transaccion atomica en MySQL: resuelve el `UserId` autenticado, valida existencia, vigencia (`!Discontinued`) y stock suficiente (`UnitsInStock >= Quantity`), descuenta existencias en `products`, inserta el registro en `orders` (vinculado a `UserID` con `Status = "PENDIENTE"`) y sus filas en `order details`, y retorna `201 Created` con el `OrderDto` completo.
-* `PATCH /api/orders/{id}/status`: Recibe `UpdateOrderStatusDto` (`Status`: `PENDIENTE`, `PENDIENTE_ENVIO`, `EN_TRANSITO`, `ENTREGADO`, `CANCELADO`). Permite a `ADMIN` gestionar transiciones de estado y a `CLIENTE` cancelar unicamente sus propios pedidos si estan en `PENDIENTE`, `PENDIENTE_ENVIO` o `EN_TRANSITO` (`EMPLEADO` recibe `403 Forbidden`). Rechaza con `409 Conflict` cancelar un pedido `ENTREGADO` o modificar un pedido ya `CANCELADO` (estado final irreversible). Al pasar a `CANCELADO`, ejecuta una transaccion atomica que devuelve `OrderDetail.Quantity` a `products.UnitsInStock`.
+* Protegido por `[ApiKey]` y validacion de rol estrictamente desde base de datos (`user.Role.Name`; funcion `ResolveUserRole` y listas hardcodeadas eliminadas).
+* `GET /api/orders`: `[RequireRoles(ADMIN, EMPLEADO)]` (`CLIENTE` recibe `403 Forbidden`).
+* `GET /api/orders/mine`: Cualquier usuario autenticado (filtra `Order.UserId == user.Id`).
+* `GET /api/orders/{id}`: `ADMIN` y `EMPLEADO` consultan cualquier orden; `CLIENTE` solo sus propias ordenes (`403 Forbidden` ante intento de acceso ajeno).
+* `POST /api/orders`: `[RequireRoles(CLIENTE)]` transaccional con descuento atomico de stock.
+* `PATCH /api/orders/{id}/status`: Valida el rol directamente en BD (`ADMIN` 5 estados, `EMPLEADO` `403 Forbidden`, `CLIENTE` solo cancelacion de pedidos propios activos) con reintegro atomico de stock y estado `CANCELADO` irreversible.
 
 ### 3.6. Controladores Inexistentes en Backend
 * **Categorias y Proveedores:** NO existen `CategoriesController` ni `SuppliersController` en el backend. Las vistas que los requieran deben operar mediante cache local, catalogos estaticos de referencia o fallback silencioso ya previsto en `categoryService.js` y `supplierService.js`.
@@ -69,91 +68,58 @@ El backend ASP.NET Core (`APIkey`, .NET 8 / MySQL en `C:\Users\yalan\Documentos\
 
 ---
 
-## 4. Definicion de Roles, Responsabilidades y Matriz de Permisos (RBAC)
+## 4. Definicion de Roles en Base de Datos y Matriz de Permisos (Backend-Only)
 
-Dado que la tabla `users` en base de datos no contiene una columna de rol mutable y el backend esta congelado, el control de acceso basado en roles (RBAC) se modela de forma hibrida: autenticacion criptografica mediante API Key en backend + autorizacion RBAC determinista en frontend basada en perfiles seguros.
+El control de acceso basado en roles reside exclusivamente en el servidor y en la base de datos MySQL (`roles` + `users.RoleId`). El frontend nunca conoce ni almacena nombres de roles; recibe unicamente banderas booleanas de interfaz (`UiPermissionsDto`) y `DefaultView` desde el backend para adaptar menus y botones.
 
-### 4.1. Perfiles y Responsabilidades
+### 4.1. Perfiles en Base de Datos y Cuentas Semilla
 
-1. **Administrador (`ADMIN`)**:
-   * **Alcance:** Control total y gobierno del sistema.
-   * **Credencial / Origen:** Cuentas autenticadas mediante `POST /api/auth/login` con nombre de usuario con privilegios administrativos declarados (`admin`, `administrador`).
-   * **Responsabilidades:**
-     * Gestion integral del catalogo e inventario de productos (Creacion `POST`, Edicion `PUT`, Descontinuacion logica y Eliminacion `DELETE`).
-     * Acceso irrestricto a la vista de gestion de productos (`productos.html`).
-     * Consulta y auditoria de clientes (`clientes.html` / `customers`).
-     * Consulta integral de ordenes y logistica (`ordenes.html` / `orders`).
-     * Capacidad de regeneracion de API Keys institucionales y de administracion.
+1. **Administrador (`roles.Id = 1`, `ADMIN`)**:
+   * **Cuenta semilla:** `admin` (`admin@northwind.local`, clave inicial PBKDF2-SHA256 `Admin1234!`).
+   * **Permisos en backend:** CRUD completo de productos (`POST`, `PUT`, `DELETE`), consulta de clientes (`/api/customers`), consulta de todas las ordenes (`/api/orders`) y gestion de los 5 estados logisticos (`PATCH /api/orders/{id}/status`).
 
-2. **Empleado (`EMPLEADO`)**:
-   * **Alcance:** Operacion comercial, gestion de existencias y atencion operativa.
-   * **Credencial / Origen:** Usuarios creados por administracion o identificados con perfil operativo (`emp_*` o asignacion en whitelist institucional).
-   * **Responsabilidades:**
-     * Consulta del catalogo completo de productos e inventario.
-     * Actualizacion operativa de existencias y precios (`PUT /api/Products/{id}`).
-     * **Restriccion:** Prohibida la eliminacion de productos (`DELETE`) y la alteracion de credenciales maestras.
-     * Consulta del directorio de clientes (`GET /api/customers`) para atencion comercial.
-     * Consulta y seguimiento del estado de pedidos y despachos (`GET /api/orders`).
+2. **Empleado (`roles.Id = 2`, `EMPLEADO`)**:
+   * **Cuentas semilla:** `Robe` (`robe@northwind.local`, `Robe1234!`) y `Leo` (`leo@northwind.local`, `Leo1234!`).
+   * **Permisos en backend:** Consulta de productos, actualizacion restringida de precio y existencias (`PUT /api/Products/{id}`, sin modificar nombre ni descontinuacion), consulta de clientes (`/api/customers`) y consulta de ordenes de solo lectura (`/api/orders`).
 
-3. **Cliente (`CLIENTE`)**:
-   * **Alcance:** Consumidor final / autoservicio.
-   * **Credencial / Origen:** Cualquier usuario registrado de forma autonoma mediante `POST /api/auth/register`. Su API Key generada (`ak_...`) identifica su cuenta personal.
-   * **Responsabilidades:**
-     * Navegacion en catalogo paginado de productos disponibles (`catalogo.html`).
-     * Consulta de precios, nombres y stock disponible.
-     * Consulta de sus ordenes de compra e historial historico (`ordenes.html`).
-     * **Restriccion Total:** Acceso denegado a la gestion administrativa de productos (`productos.html`), a la creacion/modificacion/eliminacion de inventario y al directorio general de otros clientes.
+3. **Cliente (`roles.Id = 3`, `CLIENTE`, default en registro)**:
+   * **Origen:** Registro publico mediante `POST /api/auth/register` (`RoleId = 3` forzado en servidor).
+   * **Permisos en backend:** Lectura de catalogo (`GET /api/Products`), compras (`POST /api/orders`), consulta de sus propias ordenes (`GET /api/orders/mine`, `GET /api/orders/{id}` propio) y cancelacion de sus pedidos propios activos (`PATCH /api/orders/{id}/status` -> `CANCELADO`).
 
-### 4.2. Matriz de Permisos (RBAC)
+### 4.2. Matriz de Permisos Validada en Backend
 
 | Recurso / Vista / Operacion | Endpoint Backend / Ruta Frontend | Metodo | ADMIN | EMPLEADO | CLIENTE |
 | :--- | :--- | :---: | :---: | :---: | :---: |
 | **Registro Publico** | `/api/auth/register` | POST | ❌ | ❌ | ✅ |
 | **Inicio de Sesion** | `/api/auth/login` | POST | ✅ | ✅ | ✅ |
-| **Regenerar API Key** | `/api/apikeys/regenerate` | POST | ✅ | ✅ | ❌ |
-| **Catalogo Paginado (Vista)** | `catalogo.html` | GET | ✅ | ✅ | ✅ |
-| **Listar Productos (API)** | `/api/Products` | GET | ✅ | ✅ | ✅ |
-| **Detalle de Producto (API)** | `/api/Products/{id}` | GET | ✅ | ✅ | ✅ |
-| **Gestion Productos CRUD (Vista)** | `productos.html` | GET | ✅ | ✅ (Solo edicion) | ❌ (Bloqueo 403) |
-| **Crear Producto (API)** | `/api/Products` | POST | ✅ | ❌ | ❌ |
-| **Actualizar Producto / Stock (API)**| `/api/Products/{id}` | PUT | ✅ | ✅ | ❌ |
-| **Eliminar Producto (API)** | `/api/Products/{id}` | DELETE | ✅ (Restringido) | ❌ | ❌ |
-| **Directorio de Clientes (API)** | `/api/customers` | GET | ✅ | ✅ | ❌ |
-| **Detalle de Cliente (API)** | `/api/customers/{id}` | GET | ✅ | ✅ | ❌ |
-| **Listar Ordenes (API)** | `/api/orders` | GET | ✅ | ✅ | ❌ (Usa `/mine`) |
-| **Mis Ordenes (API)** | `/api/orders/mine` | GET | ✅ | ✅ | ✅ (Propias) |
-| **Crear Orden / Compra (API)** | `/api/orders` | POST | ✅ | ✅ | ✅ |
-| **Detalle de Orden (API)** | `/api/orders/{id}` | GET | ✅ | ✅ | ✅ (Propia) |
-| **Cambiar Estado / Cancelar Orden (API)** | `/api/orders/{id}/status` | PATCH | ✅ (5 estados) | ❌ (403) | ✅ (Solo cancelar propia activa) |
+| **Perfil de Capacidades UI** | `/api/auth/me` | GET | ✅ | ✅ | ✅ |
+| **Catalogo (Vista)** | `catalogo.html` | GET | ✅ | ✅ | ✅ |
+| **Listar / Detalle Productos** | `/api/Products` | GET | ✅ | ✅ | ✅ |
+| **Gestion Productos (Vista)** | `productos.html` | GET | ✅ | ✅ (Solo precio/stock) | ❌ (403) |
+| **Crear Producto** | `/api/Products` | POST | ✅ | ❌ (403) | ❌ (403) |
+| **Actualizar Producto / Stock**| `/api/Products/{id}` | PUT | ✅ | ✅ (Solo precio/stock) | ❌ (403) |
+| **Eliminar Producto** | `/api/Products/{id}` | DELETE | ✅ (409 si vinculado) | ❌ (403) | ❌ (403) |
+| **Directorio de Clientes** | `/api/customers` | GET | ✅ | ✅ | ❌ (403) |
+| **Listar Todas las Ordenes** | `/api/orders` | GET | ✅ | ✅ | ❌ (403) |
+| **Mis Ordenes** | `/api/orders/mine` | GET | ✅ | ✅ | ✅ (Propias) |
+| **Crear Orden / Compra** | `/api/orders` | POST | ❌ (403) | ❌ (403) | ✅ |
+| **Detalle de Orden** | `/api/orders/{id}` | GET | ✅ | ✅ | ✅ (Solo propia / 403) |
+| **Cambiar Estado / Cancelar** | `/api/orders/{id}/status` | PATCH | ✅ (5 estados) | ❌ (403) | ✅ (Solo cancelar propia) |
 
 ---
 
-## 5. Arquitectura de Seguridad en Frontend (Vanilla JS)
+## 5. Arquitectura de Seguridad en Frontend (HTML, JS, Bootstrap, jQuery, DataTables)
 
-Dado el congelamiento del backend, la seguridad del lado del cliente debe ser estricta, desacoplada y basada en buenas practicas de desarrollo frontend.
+El frontend aplica el principio de minima exposicion y cero confianza en el cliente:
 
-### 5.1. Almacenamiento Seguro de Sesion (`sessionStorage` vs `localStorage`)
-* **Migracion a `sessionStorage`:** Las credenciales activas (`northwind_api_key`), el perfil de usuario y el rol del sistema deben residir primariamente en `sessionStorage`. Esto garantiza que los tokens expiren de manera inmediata al cerrar la pestana o el navegador, mitigando riesgos de retencion indebida en dispositivos compartidos.
-* **Uso Exclusivo de `localStorage`:** Restringido unicamente a parametros de configuracion de entorno no sensibles (como la URL base de la API `northwind_api_url` o tema de la interfaz).
-* **Estructura del Estado de Sesion:**
-  ```javascript
-  const session = {
-    userId: 12,
-    username: "cliente_demo",
-    role: "CLIENTE", // "ADMIN" | "EMPLEADO" | "CLIENTE"
-    apiKey: "ak_8f4a...",
-    expiresAt: "2026-12-23T23:42:00Z",
-    authenticatedAt: 1732405320000
-  };
-  ```
+### 5.1. Almacenamiento Seguro de Sesion (`sessionStorage`) y URL Fija
+* **URL fija del backend:** `https://localhost:7039/api` fija en `src/api/config.js`; sin campo editable en `login.html` ni lectura de `localStorage`.
+* **Solo `sessionStorage` para sesion:** La sesion (`auth_session`) almacena unicamente `{ userId, username, apiKey, expiresAt, authenticatedAt, defaultView, permissions, signature }` **sin ningun campo `role` ni nombre de rol**.
+* **Cero rutas de API visibles:** Ninguna vista HTML ni texto de interfaz revela rutas `/api/...` ni detalles internos del servidor.
+* **Sin regeneracion de API Key:** El boton `Mi API Key` y su modal fueron eliminados de todas las vistas y utilidades.
 
-### 5.2. Guardias de Navegacion (Route Guards en Vanilla JS)
-* Cada pagina privada (`productos.html`, `catalogo.html`, etc.) debe incluir en la primera linea de ejecucion de su script un chequeo sincrono de guardia:
-  ```javascript
-  import { authGuard } from "../utils/authGuard.js";
-  authGuard(['ADMIN', 'EMPLEADO']); // Redirige a login.html si no hay sesion, o a catalogo.html si es CLIENTE
-  ```
-* En caso de violacion de privilegios: Se emite un aviso visual claro (alerta Toast o Modal de acceso no autorizado) y se redirige automaticamente a la vista correspondiente sin exponer elementos del DOM sensible.
+### 5.2. Guardias de Navegacion por Capacidades (`authGuard.js`)
+* Cada pagina privada valida autenticacion y la capacidad de UI correspondiente (`authGuard('canViewProductsAdmin')`, `authGuard('canViewCustomers')`, `authGuard()`), sincronizando en cada carga las capacidades reales desde `GET /api/auth/me`.
 
 ### 5.3. Sanitizacion de Entradas y Prevencion de XSS
 * **Prohibicion de `innerHTML` con datos sin sanitizar:** Toda renderizacion de datos provenientes del backend (nombres de productos, descripciones, clientes, ordenes) debe ejecutarse mediante `textContent`, `document.createElement`, o a traves de una funcion utilitaria de escape HTML (`escapeHtml(str)`).
@@ -186,24 +152,23 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
   * - [x] **[Frontend]** Asignacion automatica e inmutable del perfil `CLIENTE` en la sesion tras registro exitoso.
   * - [x] **[Frontend]** Manejo e interpretacion de ProblemDetails (errores 400 por usuario o correo duplicado) con mensajes claros al usuario.
 
-#### [REQ-AUTH-002] Gestion de Administradores y Roles con Privilegios
+#### [REQ-AUTH-002] Gestion de Administradores y Roles con Privilegios (Exclusivamente en Backend)
 * **Estado:** `[DONE]`
 * **Prioridad:** Alta
-* **Descripcion:** Soporte de roles diferenciados (`ADMIN`, `EMPLEADO`, `CLIENTE`) con matriz de permisos estricta en el frontend para gobernar las vistas y llamadas a la API.
+* **Descripcion:** Soporte de roles diferenciados (`ADMIN`, `EMPLEADO`, `CLIENTE`) persistidos exclusivamente en la tabla `roles` de base de datos con FK `users.RoleId`, sin exponer nombres de roles ni whitelists en el frontend.
 * **Criterios de Aceptacion:**
-  * - [x] **[Arquitectura]** Matriz formal de permisos RBAC definida y documentada (Seccion 4.2).
-  * - [x] **[Frontend]** Mecanismo de mapeo determinista de perfil en `authService.js`: deteccion de `ADMIN` (mediante cuentas administrativas `admin`, `administrador` autenticadas via `/api/auth/login`), `EMPLEADO` (whitelist operativa y prefijo `emp_*`) y `CLIENTE` (usuarios registrados y cuentas estandar) con firma de integridad contra manipulacion en `sessionStorage`.
-  * - [x] **[Frontend]** Ocultamiento dinamico en el DOM de elementos restringidos (botones de creacion, edicion, eliminacion y enlaces de navegacion) segun el rol del usuario conectado.
-  * - [x] **[Frontend]** Soporte en interfaz administrativa para regenerar API Keys mediante `POST /api/apikeys/regenerate`.
+  * - [x] **[Arquitectura]** Matriz formal de permisos definida y documentada (Seccion 4.2), aplicada exclusivamente en el servidor.
+  * - [x] **[Backend]** Validacion de autorizacion en etapa de filtro de autorizacion (`IAsyncAuthorizationFilter`: `[ApiKey]` Order=0 y `[RequireRoles]` Order=1) consultando `users.Role` en BD; calculo en servidor de `UiPermissionsDto` + `DefaultView` via `/api/auth/login` y `GET /api/auth/me` sin incluir nombres de rol.
+  * - [x] **[Frontend]** Ocultamiento dinamico en el DOM de elementos restringidos (botones de creacion, edicion, eliminacion y enlaces de navegacion) basado unicamente en banderas booleanas de capacidad de UI (`permissions`), sin exponer roles ni regeneracion de API Keys.
 
 #### [REQ-AUTH-003] Alta y Diferenciacion de Cuentas Operativas (Empleados)
 * **Estado:** `[DONE]`
 * **Prioridad:** Alta
-* **Descripcion:** Garantizar que los privilegios operativos de `EMPLEADO` no puedan ser adquiridos de forma autonoma por usuarios publicos. Dado el congelamiento del backend, el registro publico asigna unicamente `CLIENTE`, mientras que las cuentas de `EMPLEADO` son administradas o habilitadas bajo lista de control autorizada.
+* **Descripcion:** Garantizar que los privilegios operativos de `EMPLEADO` y `ADMIN` no puedan ser adquiridos de forma autonoma por usuarios publicos. El registro publico asigna estrictamente `RoleId = 3` (`CLIENTE`) en servidor, mientras que las cuentas iniciales (`admin`, `Robe`, `Leo`) se siembran en la migracion EF Core `AddRolesAndSeedUsers`.
 * **Criterios de Aceptacion:**
-  * - [x] **[Backend]** El endpoint publico `/api/auth/register` no admite parametros de inyeccion de rol (solo recibe `RegisterDto`).
-  * - [x] **[Frontend]** Blindaje del flujo de registro: ninguna manipulacion en el payload permite elevar privilegios a `EMPLEADO` o `ADMIN`.
-  * - [x] **[Frontend]** Configuracion centralizada de credenciales operativas de empleados para atencion comercial y mantenimiento de stock.
+  * - [x] **[Backend]** El endpoint publico `/api/auth/register` no admite parametros de inyeccion de rol (solo recibe `RegisterDto`) y asigna siempre `RoleId = Role.ClienteId`.
+  * - [x] **[Backend]** Migracion EF Core `AddRolesAndSeedUsers` siembra 1 administrador (`admin`) y 2 empleados (`Robe`, `Leo`) con hashes PBKDF2-SHA256.
+  * - [x] **[Frontend]** Blindaje del flujo de registro: ninguna manipulacion en el payload permite elevar privilegios.
 
 ---
 
@@ -245,7 +210,7 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
 * **Prioridad:** Alta
 * **Descripcion:** Unificar en `/api/customers` y `clientes.html` los clientes de Northwind con los clientes reales registrados en `users` (perfil `CLIENTE`, clave dinamica de iniciales + autoincremento, correo en Empresa y usuario en Contacto, sin etiquetas adicionales), e implementar el ciclo completo de estados de pedidos (`Pendiente`, `Pendiente de envio`, `En transito`, `Entregado`, `Cancelado`) mediante `PATCH /api/orders/{id}/status`, incluyendo control exclusivo para `ADMIN` con confirmaciones de seguridad y cancelacion por parte del `CLIENTE` (y `ADMIN`) con devolucion atomica de stock y estado final irreversible.
 * **Criterios de Aceptacion:**
-  * - [x] **[Backend]** `CustomersController` (`GET /api/customers` y `GET /api/customers/{id}`) unifica Northwind + usuarios activos con perfil `CLIENTE` (excluyendo `admin`, `administrador`, `empleado`, `operador`, `ventas` y `emp_*`), generando claves dinamicas unicas de iniciales + numero autoincremental (1 a 5 caracteres alfanumericos).
+  * - [x] **[Backend]** `CustomersController` (`GET /api/customers` y `GET /api/customers/{id}`) unifica Northwind + usuarios activos con rol `CLIENTE` en base de datos (`u.Role.Name == Role.ClienteName`), generando claves dinamicas unicas de iniciales + numero autoincremental (1 a 5 caracteres alfanumericos).
   * - [x] **[Backend]** Migracion EF Core `AddOrderStatus` agrega columna `orders.Status` (`varchar(30)`) y `OrdersController` expone `Status` en `OrderDto`.
   * - [x] **[Backend]** `PATCH /api/orders/{id}/status` valida roles (`ADMIN` 5 estados, `EMPLEADO` 403, `CLIENTE` solo cancelacion de pedidos propios activos), impide cancelar pedidos `ENTREGADO` o reactivar pedidos `CANCELADO` (`409 Conflict`), y devuelve atómicamente `UnitsInStock` en transaccion al cancelar.
   * - [x] **[Frontend]** `clientes.html` muestra la lista unificada en una sola tabla sin etiquetas extra.
@@ -295,8 +260,8 @@ Dado el congelamiento del backend, la seguridad del lado del cliente debe ser es
 * **Prioridad:** Critica
 * **Descripcion:** Doble capa de autorizacion: el backend valida la autenticidad de la cabecera `X-API-KEY` en cada peticion privada, y el frontend Vanilla JS protege las URLs mediante guardias de navegacion (`authGuard.js`).
 * **Criterios de Aceptacion:**
-  * - [x] **[Backend]** Filtro `[ApiKey]` implementado e inyectado en `ProductsController`, `CustomersController`, `OrdersController` y `ApiKeysController`.
-  * - [x] **[Backend]** Soporte dual de API Key: validacion contra llave fija institucional (`ROBE-LINGO-KEY-1234`) o contra hash SHA256 en tabla `api_keys`.
+  * - [x] **[Backend]** Filtros de autorizacion `[ApiKey]` (`IAsyncAuthorizationFilter`, Order=0) y `[RequireRoles]` (`IAsyncAuthorizationFilter`, Order=1) aplicados en `ProductsController`, `CustomersController`, `OrdersController` y `AuthController.GetMe` antes de la validacion de modelos.
+  * - [x] **[Backend]** Validacion exclusiva de `X-API-KEY` contra hash SHA-256 activo y no expirado en tabla `api_keys`, vinculada a un usuario activo con rol valido en `users`/`roles` (llave maestra estatica eliminada).
   * - [x] **[Frontend]** Inyeccion obligatoria y transparente de la cabecera `X-API-KEY` en todas las llamadas de `httpClient.js`.
   * - [x] **[Frontend]** Modulo `authGuard.js` ejecutado al cargar cada vista privada; redireccion inmediata a `login.html` si no hay sesion, o a `catalogo.html` con mensaje 403 si el rol no tiene privilegios.
 
@@ -377,3 +342,4 @@ Para incorporar un nuevo requisito, agrega el siguiente bloque en el modulo corr
 | 2026-11-24 | @verifier | REQ-SEC-004, REQ-SEC-005, REQ-SEC-006 | Cierre al 100% de Fase 5 y del proyecto (14/14 requisitos `[DONE]`, 28/28 pruebas existentes pasando en `tests/fase1.test.mjs` a `tests/fase4.test.mjs`): proteccion contra clickjacking (`frame-ancestors 'none'` + `window.top !== window.self`) en todas las vistas `src/views/*.html`; prevencion XSS (`src/utils/securityUtils.js` y 0 usos de `innerHTML` en `src/`) e higiene completa de `sessionStorage`/`localStorage` en `httpClient.js` y `authService.js`; proteccion contra fuerza bruta en `src/utils/bruteForceProtection.js`, `src/views/login.html` y `src/controllers/loginController.js` (3 intentos HTTP 401, bloqueo de 15 min persistente ante F5, cronometro MM:SS y reto CAPTCHA); y auditoria estatica limpia sin endpoints inexistentes ni rutas rotas. |
 | 2026-11-24 | Antigravity | REQ-CORE-003 | Extension controlada del backend (`APIkey`) y frontend para compras reales e historial propio de `CLIENTE` (15/15 requisitos `[DONE]`): `ApiKeyAttribute` propaga `ClientIdentifier`; migracion EF Core `AddOrderUserIdAndWidenShipFields` (`orders.UserID` + columnas de envio ampliadas); `POST /api/orders` transaccional y `GET /api/orders/mine` con `Items` y `Total` en `OrdersController.cs`; integracion en `orderModel.js`, `orderService.js`, `catalogController.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`; 32/32 pruebas unitarias y verificacion E2E en vivo contra MySQL exitosas. |
 | 2026-11-24 | Antigravity | REQ-CORE-004 | Extension controlada de clientes unificados y ciclo de estados/cancelacion de pedidos (16/16 requisitos `[DONE]`): `CustomersController.cs` unifica Northwind + cuentas activas `CLIENTE` con clave dinamica determinista (iniciales + autoincremento, correo en Empresa y usuario en Contacto); migracion EF Core `AddOrderStatus` (`orders.Status`); `PATCH /api/orders/{id}/status` en `OrdersController.cs` con RBAC (`ADMIN` 5 estados, `CLIENTE` cancelacion de pedidos propios activos), estado `CANCELADO` irreversible, bloqueo de cancelacion en `ENTREGADO` y reintegro atomico de stock; integracion en `orderModel.js`, `orderService.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`; 38/38 pruebas unitarias (`tests/fase1.test.mjs` a `tests/fase7.test.mjs`) y `dotnet build` sin errores. |
+| 2026-11-25 | Antigravity | ALL (v2.0.0) | Endurecimiento integral de seguridad y menor exposicion del backend (Fase 8): creacion de tabla `roles` (`ADMIN`, `EMPLEADO`, `CLIENTE`) y FK `users.RoleId` (default `CLIENTE`) en migracion EF Core `AddRolesAndSeedUsers` sembrando 1 admin (`admin`) y 2 empleados (`Robe`, `Leo`) con PBKDF2-SHA256; eliminacion de `ResolveUserRole` y listas hardcodeadas en backend; autorizacion estricta en servidor mediante `[ApiKey]` + `[RequireRoles]` en todos los controladores; nuevo endpoint `GET /api/auth/me` con banderas de UI (`UiPermissionsDto`) sin exponer nombres de roles; eliminacion de `POST /api/apikeys/regenerate` y su modulo/boton en frontend; eliminacion de exposicion de roles en frontend (`ROLES`, whitelists, `#badgeRol`, `#badgeRoleCliente`, campo `role` en `sessionStorage`); eliminacion del campo de configuracion de URL del backend en `login.html` y `localStorage` (`https://localhost:7039/api` fija); y eliminacion de textos que revelen rutas de la API en frontend. |

@@ -7,15 +7,15 @@ import {
     formatCurrency,
     escapeHtml,
     initNavbar,
-    resolveConnectedRole,
+    resolveConnectedPermissions,
     setElementVisibility,
     showModal,
     bindModalDismiss,
     extractProblemMessage
 } from "../utils/tableHelpers.js";
 
-// Guardia de navegación síncrona como primera instrucción ejecutable (TASK-F2-04 / TASK-F3-06)
-authGuard(['ADMIN', 'EMPLEADO', 'CLIENTE']);
+// Guardia de navegación síncrona como primera instrucción ejecutable
+authGuard();
 
 let productos = [];
 
@@ -499,7 +499,7 @@ export function actualizarTotalCompra(doc = typeof document !== 'undefined' ? do
 }
 
 /**
- * Abre el modal de detalle del producto seleccionado y muestra el formulario de compra solo para CLIENTE.
+ * Abre el modal de detalle del producto seleccionado y muestra el formulario de compra si la cuenta tiene permiso.
  */
 export function abrirModalProductoCatalogo(productId, doc = typeof document !== 'undefined' ? document : null) {
     if (!doc) return null;
@@ -539,11 +539,11 @@ export function abrirModalProductoCatalogo(productId, doc = typeof document !== 
     resetValidacionCompra(doc);
 
     const usuario = typeof authService.getCurrentUser === 'function' ? authService.getCurrentUser() : null;
-    const role = resolveConnectedRole(usuario, authService);
+    const perms = resolveConnectedPermissions(usuario, authService);
     const seccionCompra = doc.getElementById('seccionCompraCatalogo');
     const footerSoloLectura = doc.getElementById('footerSoloLecturaCatalogo');
 
-    if (role === 'CLIENTE') {
+    if (perms.canPurchaseCatalog) {
         setElementVisibility(seccionCompra, true);
         setElementVisibility(footerSoloLectura, false);
 
@@ -608,15 +608,15 @@ function aplicarFiltrosActivos(doc) {
 }
 
 /**
- * Valida y procesa la compra del producto seleccionado descontando stock real vía PUT /api/Products/{id}.
+ * Valida y procesa la compra del producto seleccionado descontando stock en el servidor.
  */
 export async function procesarCompraCatalogo(event, doc = typeof document !== 'undefined' ? document : null) {
     event?.preventDefault?.();
     if (!doc) return false;
 
     const usuario = typeof authService.getCurrentUser === 'function' ? authService.getCurrentUser() : null;
-    if (resolveConnectedRole(usuario, authService) !== 'CLIENTE') {
-        showCompraAlert(doc, 'Solo las cuentas con perfil CLIENTE pueden realizar compras desde el catálogo.', true);
+    if (!resolveConnectedPermissions(usuario, authService).canPurchaseCatalog) {
+        showCompraAlert(doc, 'Tu cuenta no está habilitada para realizar compras desde el catálogo.', true);
         return false;
     }
 
@@ -819,7 +819,8 @@ export function configurarModalCatalogo(doc = typeof document !== 'undefined' ? 
 export async function initCatalogController(doc = typeof document !== 'undefined' ? document : null) {
     if (!doc) return;
 
-    const usuario = (typeof authService.getCurrentUser === 'function' && authService.getCurrentUser())
+    const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)
+        || (typeof authService.getCurrentUser === 'function' && authService.getCurrentUser())
         || await authService.checkSession();
     if (!usuario) {
         if (typeof window !== 'undefined' && window.location) {
@@ -836,7 +837,7 @@ export async function initCatalogController(doc = typeof document !== 'undefined
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('DOMContentLoaded', async () => {
-        if (document.body?.getAttribute?.('data-auth-blocked') || !authService.isAuthenticated() || !authService.hasRole(['ADMIN', 'EMPLEADO', 'CLIENTE'])) {
+        if (document.body?.getAttribute?.('data-auth-blocked') || !authService.isAuthenticated()) {
             return;
         }
         await initCatalogController(document);

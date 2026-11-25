@@ -2,13 +2,9 @@ import {
     API_BASE_URL,
     DEFAULT_BASE_URL,
     STORAGE_KEYS,
-    ROLES,
-    ADMIN_WHITELIST,
-    EMPLOYEE_WHITELIST,
-    EMPLOYEE_PREFIX,
     AUTH_LOGIN,
     AUTH_REGISTER,
-    APIKEYS_REGENERATE,
+    AUTH_ME,
     PRODUCTS,
     CUSTOMERS,
     ORDERS,
@@ -23,13 +19,9 @@ export {
     API_BASE_URL,
     DEFAULT_BASE_URL,
     STORAGE_KEYS,
-    ROLES,
-    ADMIN_WHITELIST,
-    EMPLOYEE_WHITELIST,
-    EMPLOYEE_PREFIX,
     AUTH_LOGIN,
     AUTH_REGISTER,
-    APIKEYS_REGENERATE,
+    AUTH_ME,
     PRODUCTS,
     CUSTOMERS,
     ORDERS,
@@ -51,7 +43,7 @@ const STATUS_ERROR_MESSAGES = Object.freeze({
     500: 'Ocurrió un error interno en el servidor. Intenta nuevamente más tarde.'
 });
 
-const SENSITIVE_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+)/i;
+const SENSITIVE_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|https?:\/\/localhost(?::\d+)?)/i;
 
 export class ApiError extends Error {
     constructor(problemDetails) {
@@ -87,8 +79,8 @@ export function normalizeProblemDetails(payload, status = 500) {
             status: numericStatus,
             title: 'Error interno del servidor',
             detail: STATUS_ERROR_MESSAGES[500],
-            instance: payload?.instance || null,
-            type: payload?.type || null,
+            instance: null,
+            type: null,
             errors: null,
             message: STATUS_ERROR_MESSAGES[500]
         };
@@ -113,7 +105,7 @@ export function normalizeProblemDetails(payload, status = 500) {
         status: numericStatus,
         title,
         detail,
-        instance: (typeof payload === 'object' && payload !== null ? payload.instance : null) || null,
+        instance: null,
         type: (typeof payload === 'object' && payload !== null ? payload.type : null) || null,
         errors: rawErrors,
         message
@@ -164,7 +156,7 @@ export function getApiKey() {
     return null;
 }
 
-export function setApiConfig(apiKey, baseUrl = null) {
+export function setApiConfig(apiKey) {
     try {
         if (apiKey && typeof sessionStorage !== 'undefined') {
             sessionStorage.setItem(STORAGE_KEYS.API_KEY, apiKey.trim());
@@ -172,9 +164,7 @@ export function setApiConfig(apiKey, baseUrl = null) {
         if (typeof localStorage !== 'undefined') {
             localStorage.removeItem(STORAGE_KEYS.API_KEY);
             localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
-            if (baseUrl && baseUrl.trim() !== '') {
-                localStorage.setItem(STORAGE_KEYS.API_URL, baseUrl.trim().replace(/\/+$/, ''));
-            }
+            localStorage.removeItem('northwind_api_url');
         }
     } catch {
         // Ignore storage errors
@@ -185,6 +175,7 @@ const SENSITIVE_LOCAL_KEYS = Object.freeze([
     STORAGE_KEYS.API_KEY,
     STORAGE_KEYS.AUTH_SESSION,
     STORAGE_KEYS.AUTH_FLASH_ERROR,
+    'northwind_api_url',
     'api_key',
     'apiKey',
     'auth_token',
@@ -282,9 +273,9 @@ export const httpClient = async (endpoint, options = {}) => {
             } else if (response.status === 403) {
                 console.warn('403 Forbidden:', problemDetails.message);
             } else if (response.status === 404) {
-                console.warn(`404 Not Found (${endpoint}):`, problemDetails.message);
+                console.warn('404 Not Found:', problemDetails.message);
             } else if (response.status === 409) {
-                console.warn(`409 Conflict (${endpoint}):`, problemDetails.message);
+                console.warn('409 Conflict:', problemDetails.message);
             } else if (response.status >= 500) {
                 console.error(`HTTP ${response.status} Server Error:`, problemDetails.message);
             }
@@ -292,7 +283,7 @@ export const httpClient = async (endpoint, options = {}) => {
 
         return response;
     } catch (error) {
-        console.error('Error de conexión con el servidor (fetch):', error);
+        console.error('Error de conexión con el servidor:', error?.message || 'Fallo de red');
         throw error;
     }
 };
@@ -339,11 +330,11 @@ export function ajaxRequest(endpoint, { method = 'GET', body = null, headers = {
         };
 
         xhr.onerror = function () {
-            reject(new Error(`Error de red AJAX (XMLHttpRequest) al contactar ${url}`));
+            reject(new Error('Error de red al comunicarse con el servidor.'));
         };
 
         xhr.ontimeout = function () {
-            reject(new Error(`Timeout en la petición AJAX a ${url}`));
+            reject(new Error('Tiempo de espera agotado al comunicarse con el servidor.'));
         };
 
         const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
@@ -414,7 +405,7 @@ export function callbackRequest(endpoint, options = {}, callback) {
     };
 
     xhr.onerror = function () {
-        callback(new Error(`Fallo de conexión de red al conectar a ${url}`), null);
+        callback(new Error('Fallo de conexión de red al comunicarse con el servidor.'), null);
     };
 
     const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;

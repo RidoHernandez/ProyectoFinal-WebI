@@ -342,8 +342,64 @@ function makeResponse({ status = 200, body = null, ok = status >= 200 && status 
     };
 }
 
+function mockProfileFor(username) {
+    if (username === 'admin') {
+        return {
+            defaultView: './productos.html',
+            permissions: {
+                canViewProductsAdmin: true,
+                canCreateProducts: true,
+                canEditProductDetails: true,
+                canEditProductPricingStock: true,
+                canDeleteProducts: true,
+                canDiscontinueProducts: true,
+                canViewCustomers: true,
+                canViewAllOrders: true,
+                canUpdateOrderStatus: true,
+                canCancelOwnOrders: false,
+                canPurchaseCatalog: false
+            }
+        };
+    }
+    if (username.startsWith('emp_') || username === 'Robe' || username === 'Leo') {
+        return {
+            defaultView: './productos.html',
+            permissions: {
+                canViewProductsAdmin: true,
+                canCreateProducts: false,
+                canEditProductDetails: false,
+                canEditProductPricingStock: true,
+                canDeleteProducts: false,
+                canDiscontinueProducts: false,
+                canViewCustomers: true,
+                canViewAllOrders: true,
+                canUpdateOrderStatus: false,
+                canCancelOwnOrders: false,
+                canPurchaseCatalog: false
+            }
+        };
+    }
+    return {
+        defaultView: './catalogo.html',
+        permissions: {
+            canViewProductsAdmin: false,
+            canCreateProducts: false,
+            canEditProductDetails: false,
+            canEditProductPricingStock: false,
+            canDeleteProducts: false,
+            canDiscontinueProducts: false,
+            canViewCustomers: false,
+            canViewAllOrders: false,
+            canUpdateOrderStatus: false,
+            canCancelOwnOrders: true,
+            canPurchaseCatalog: true
+        }
+    };
+}
+
 async function loginMockUser(username) {
     const futureExp = new Date(Date.now() + 3600 * 1000).toISOString();
+    const profile = mockProfileFor(username);
     const prevFetch = globalThis.fetch;
     globalThis.fetch = async () => makeResponse({
         status: 200,
@@ -351,7 +407,8 @@ async function loginMockUser(username) {
             userId: 10,
             username,
             apiKey: `ak_${username}_f4`,
-            expiresAt: futureExp
+            expiresAt: futureExp,
+            ...profile
         }
     });
     const session = await authService.login(username, 'Password123!');
@@ -495,10 +552,10 @@ test('TASK-F4-02: clientes.html y customersController.js (RBAC 403, anti-XSS, bÃ
     assert.equal(clientesHtml.includes('data-action="editar"'), false);
     assert.equal(clientesHtml.includes('btnNuevo'), false);
 
-    // 2. Bloqueo 403 a CLIENTE mediante authGuard(['ADMIN', 'EMPLEADO'])
+    // 2. Bloqueo 403 a cuenta sin permiso mediante authGuard('canViewCustomers')
     resetEnvironment('/src/views/clientes.html');
     await loginMockUser('cliente_demo');
-    const guardBlocked = authGuard(['ADMIN', 'EMPLEADO']);
+    const guardBlocked = authGuard('canViewCustomers');
     assert.equal(guardBlocked, false);
     assert.equal(globalThis.window.location.href, './catalogo.html?error=403');
     assert.ok(globalThis.sessionStorage.getItem('auth_flash_error')?.includes('403'));
@@ -527,6 +584,9 @@ test('TASK-F4-02: clientes.html y customersController.js (RBAC 403, anti-XSS, bÃ
     ];
 
     globalThis.fetch = async (url) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 10, username: 'emp_ventas', ...mockProfileFor('emp_ventas') } });
+        }
         if (url.endsWith('/customers/ALFKI')) {
             return makeResponse({ status: 200, body: mockCustomers[0] });
         }
@@ -811,6 +871,11 @@ test('TASK-F4-04: ordenes.html, pedidos.html y ordersController.js (RBAC, filtro
     await loginMockUser('admin');
 
     globalThis.fetch = async (url) => {
+        if (url.endsWith('/auth/me')) {
+            const current = authService.getCurrentUser();
+            const uname = current?.username || 'admin';
+            return makeResponse({ status: 200, body: { userId: 10, username: uname, ...mockProfileFor(uname) } });
+        }
         if (url.endsWith('/orders/mine')) {
             return makeResponse({
                 status: 200,

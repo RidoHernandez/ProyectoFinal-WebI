@@ -2,10 +2,10 @@ import { authGuard } from "../utils/authGuard.js";
 import { authService } from "../services/authService.js";
 import { productService } from "../services/productService.js";
 import { ProductModel, validateProduct } from "../models/productModel.js";
-import { baseTableOptions, clearTbody, escapeHtml, formatCurrency, initNavbar, resolveConnectedRole, safeTextRender } from "../utils/tableHelpers.js";
+import { baseTableOptions, clearTbody, escapeHtml, formatCurrency, initNavbar, resolveConnectedPermissions, safeTextRender } from "../utils/tableHelpers.js";
 
-// Guardia de navegación síncrona como primera instrucción ejecutable (TASK-F2-04 / TASK-F3-03)
-authGuard(['ADMIN', 'EMPLEADO']);
+// Guardia de navegación síncrona como primera instrucción ejecutable
+authGuard('canViewProductsAdmin');
 
 // Mensaje exacto requerido para conflicto HTTP 409 en eliminación física (TASK-F3-05 / REQ-BIZ-001)
 export const CONFLICT_409_MESSAGE =
@@ -21,7 +21,14 @@ let productosCache = [];
 let modalInstancia = null;
 let modal409Instancia = null;
 let tabla = null;
-let rolActual = 'ADMIN';
+let permisosActuales = {
+    canViewProductsAdmin: false,
+    canCreateProducts: false,
+    canEditProductDetails: false,
+    canEditProductPricingStock: false,
+    canDeleteProducts: false,
+    canDiscontinueProducts: false
+};
 
 // Renderiza sólo en modo 'display'; para ordenar/buscar se usa el valor crudo
 const display = (fn) => (data, type, row) => type === 'display' ? fn(data, row) : data;
@@ -176,51 +183,73 @@ export function getProductosCache() {
     return productosCache;
 }
 
-// Genera los botones de acción de cada fila según el rol:
-// ADMIN: Editar, Descontinuar y Eliminar
-// EMPLEADO: únicamente Editar (precio y existencias)
-export function renderAccionesProducto(row, rol = rolActual) {
-    const idSeguro = escapeHtml(row?.productId ?? row?.ProductId ?? '');
-    const esAdmin = String(rol || '').toUpperCase() === 'ADMIN';
-    const yaDescontinuado = Boolean(row?.discontinued ?? row?.Discontinued);
-
-    const btnEditar = `<button type="button" class="btn btn-sm btn-outline-primary${esAdmin ? ' me-1' : ''}" data-action="editar" data-id="${idSeguro}">Editar</button>`;
-    if (!esAdmin) {
-        return btnEditar;
-    }
-
-    const btnDescontinuar = `<button type="button" class="btn btn-sm ${yaDescontinuado ? 'btn-secondary' : 'btn-outline-warning'} me-1" data-action="descontinuar" data-id="${idSeguro}"${yaDescontinuado ? ' disabled' : ''}>${yaDescontinuado ? 'Descontinuado' : 'Descontinuar'}</button>`;
-    const btnEliminar = `<button type="button" class="btn btn-sm btn-outline-danger" data-action="eliminar" data-id="${idSeguro}">Eliminar</button>`;
-
-    return `${btnEditar}${btnDescontinuar}${btnEliminar}`;
+function normalizarPermisosProductos(permisos = permisosActuales) {
+    const src = permisos && typeof permisos === 'object' ? permisos : {};
+    return {
+        canViewProductsAdmin: Boolean(src.canViewProductsAdmin),
+        canCreateProducts: Boolean(src.canCreateProducts),
+        canEditProductDetails: Boolean(src.canEditProductDetails),
+        canEditProductPricingStock: Boolean(src.canEditProductPricingStock),
+        canDeleteProducts: Boolean(src.canDeleteProducts),
+        canDiscontinueProducts: Boolean(src.canDiscontinueProducts)
+    };
 }
 
-// Adapta dinámicamente los controles de la vista y del modal según el rol conectado (TASK-F3-03 / REQ-AUTH-002)
-export function aplicarPermisosRolProductos(rol = rolActual) {
-    const upperRol = String(rol || '').trim().toUpperCase();
-    rolActual = upperRol === 'ADMIN'
-        ? 'ADMIN'
-        : (upperRol === 'EMPLEADO' ? 'EMPLEADO' : 'CLIENTE');
-    const esAdmin = rolActual === 'ADMIN';
-    const puedeEditarStockPrecio = rolActual === 'ADMIN' || rolActual === 'EMPLEADO';
+// Genera los botones de acción de cada fila según las capacidades de UI autorizadas por el backend
+export function renderAccionesProducto(row, permisos = permisosActuales) {
+    const idSeguro = escapeHtml(row?.productId ?? row?.ProductId ?? '');
+    const p = normalizarPermisosProductos(permisos);
+    const yaDescontinuado = Boolean(row?.discontinued ?? row?.Discontinued);
+
+    const botones = [];
+    if (p.canEditProductPricingStock || p.canEditProductDetails) {
+        const hasMore = p.canDiscontinueProducts || p.canDeleteProducts;
+        botones.push(
+            `<button type="button" class="btn btn-sm btn-outline-primary${hasMore ? ' me-1' : ''}" data-action="editar" data-id="${idSeguro}">Editar</button>`
+        );
+    }
+
+    if (p.canDiscontinueProducts) {
+        botones.push(
+            `<button type="button" class="btn btn-sm ${yaDescontinuado ? 'btn-secondary' : 'btn-outline-warning'}${p.canDeleteProducts ? ' me-1' : ''}" data-action="descontinuar" data-id="${idSeguro}"${yaDescontinuado ? ' disabled' : ''}>${yaDescontinuado ? 'Descontinuado' : 'Descontinuar'}</button>`
+        );
+    }
+
+    if (p.canDeleteProducts) {
+        botones.push(
+            `<button type="button" class="btn btn-sm btn-outline-danger" data-action="eliminar" data-id="${idSeguro}">Eliminar</button>`
+        );
+    }
+
+    return botones.join('');
+}
+
+// Adapta dinámicamente los controles de la vista y del modal según las capacidades de UI autorizadas por el backend
+export function aplicarPermisosProductos(permisos = permisosActuales) {
+    permisosActuales = normalizarPermisosProductos(permisos);
+    const puedeCrear = permisosActuales.canCreateProducts;
+    const puedeEditarDetalles = permisosActuales.canEditProductDetails;
+    const puedeEditarStockPrecio = permisosActuales.canEditProductPricingStock || puedeEditarDetalles;
+    const puedeEliminar = permisosActuales.canDeleteProducts;
+    const puedeDescontinuar = permisosActuales.canDiscontinueProducts;
 
     const doc = getDoc();
     if (!doc) return;
 
     const btnNuevo = doc.getElementById('btnNuevoProducto');
     if (btnNuevo) {
-        setElementVisibility(btnNuevo, esAdmin);
+        setElementVisibility(btnNuevo, puedeCrear);
     }
 
     if (typeof doc.querySelectorAll === 'function') {
         const botonesEliminar = Array.from(doc.querySelectorAll('button[data-action="eliminar"]') || []);
         for (const btn of botonesEliminar) {
-            setElementVisibility(btn, esAdmin);
+            setElementVisibility(btn, puedeEliminar);
         }
 
         const botonesDescontinuar = Array.from(doc.querySelectorAll('button[data-action="descontinuar"]') || []);
         for (const btn of botonesDescontinuar) {
-            setElementVisibility(btn, esAdmin);
+            setElementVisibility(btn, puedeDescontinuar);
         }
     }
 
@@ -229,22 +258,24 @@ export function aplicarPermisosRolProductos(rol = rolActual) {
         for (const el of doc.allElements) {
             if (!el || el.tagName !== 'BUTTON') continue;
             const action = el.dataset?.action || el.getAttribute?.('data-action');
-            if (action === 'eliminar' || action === 'descontinuar') {
-                setElementVisibility(el, esAdmin);
+            if (action === 'eliminar') {
+                setElementVisibility(el, puedeEliminar);
+            } else if (action === 'descontinuar') {
+                setElementVisibility(el, puedeDescontinuar);
             }
         }
     }
 
-    // Restricción de campos en el modal: EMPLEADO sólo puede editar precio y existencias
+    // Restricción de campos en el modal según capacidades autorizadas
     const prodName = doc.getElementById('prodName');
     const prodDiscontinued = doc.getElementById('prodDiscontinued');
     const prodPrice = doc.getElementById('prodPrice');
     const prodStock = doc.getElementById('prodStock');
 
     if (prodName) {
-        prodName.disabled = !esAdmin;
-        prodName.readOnly = !esAdmin;
-        if (!esAdmin) {
+        prodName.disabled = !puedeEditarDetalles;
+        prodName.readOnly = !puedeEditarDetalles;
+        if (!puedeEditarDetalles) {
             prodName.setAttribute?.('readonly', 'true');
             prodName.setAttribute?.('disabled', 'true');
         } else {
@@ -254,8 +285,8 @@ export function aplicarPermisosRolProductos(rol = rolActual) {
     }
 
     if (prodDiscontinued) {
-        prodDiscontinued.disabled = !esAdmin;
-        if (!esAdmin) {
+        prodDiscontinued.disabled = !puedeEditarDetalles;
+        if (!puedeEditarDetalles) {
             prodDiscontinued.setAttribute?.('disabled', 'true');
         } else {
             prodDiscontinued.removeAttribute?.('disabled');
@@ -365,7 +396,7 @@ export function mostrarToastProducto(mensaje, tipo = 'success') {
 }
 
 // Renderiza filas en #tbodyProductos cuando DataTables no está cargado (entornos DOM / pruebas unitarias)
-export function renderizarTablaFallback(lista = productosCache, rol = rolActual) {
+export function renderizarTablaFallback(lista = productosCache, permisos = permisosActuales) {
     const doc = getDoc();
     if (!doc) return;
 
@@ -373,7 +404,7 @@ export function renderizarTablaFallback(lista = productosCache, rol = rolActual)
     if (!tbody) return;
 
     const items = Array.isArray(lista) ? lista : [];
-    const esAdmin = String(rol || '').toUpperCase() === 'ADMIN';
+    const p = normalizarPermisosProductos(permisos);
     clearTbody(tbody);
 
     if (typeof doc.createElement !== 'function') return;
@@ -414,18 +445,21 @@ export function renderizarTablaFallback(lista = productosCache, rol = rolActual)
         const tdActions = doc.createElement('td');
         tdActions.className = 'text-center text-nowrap';
 
-        const btnEditar = doc.createElement('button');
-        btnEditar.type = 'button';
-        btnEditar.className = `btn btn-sm btn-outline-primary${esAdmin ? ' me-1' : ''}`;
-        btnEditar.setAttribute('data-action', 'editar');
-        btnEditar.setAttribute('data-id', String(id));
-        btnEditar.textContent = 'Editar';
-        tdActions.appendChild(btnEditar);
+        if (p.canEditProductPricingStock || p.canEditProductDetails) {
+            const hasMore = p.canDiscontinueProducts || p.canDeleteProducts;
+            const btnEditar = doc.createElement('button');
+            btnEditar.type = 'button';
+            btnEditar.className = `btn btn-sm btn-outline-primary${hasMore ? ' me-1' : ''}`;
+            btnEditar.setAttribute('data-action', 'editar');
+            btnEditar.setAttribute('data-id', String(id));
+            btnEditar.textContent = 'Editar';
+            tdActions.appendChild(btnEditar);
+        }
 
-        if (esAdmin) {
+        if (p.canDiscontinueProducts) {
             const btnDescontinuar = doc.createElement('button');
             btnDescontinuar.type = 'button';
-            btnDescontinuar.className = `btn btn-sm ${disc ? 'btn-secondary' : 'btn-outline-warning'} me-1`;
+            btnDescontinuar.className = `btn btn-sm ${disc ? 'btn-secondary' : 'btn-outline-warning'}${p.canDeleteProducts ? ' me-1' : ''}`;
             btnDescontinuar.setAttribute('data-action', 'descontinuar');
             btnDescontinuar.setAttribute('data-id', String(id));
             if (disc) {
@@ -434,7 +468,9 @@ export function renderizarTablaFallback(lista = productosCache, rol = rolActual)
             }
             btnDescontinuar.textContent = disc ? 'Descontinuado' : 'Descontinuar';
             tdActions.appendChild(btnDescontinuar);
+        }
 
+        if (p.canDeleteProducts) {
             const btnEliminar = doc.createElement('button');
             btnEliminar.type = 'button';
             btnEliminar.className = 'btn btn-sm btn-outline-danger';
@@ -475,16 +511,16 @@ export async function listarProductos() {
         if (tabla) {
             tabla.clear().rows.add(productosCache).draw();
         } else {
-            renderizarTablaFallback(productosCache, rolActual);
+            renderizarTablaFallback(productosCache, permisosActuales);
         }
 
-        aplicarPermisosRolProductos(rolActual);
+        aplicarPermisosProductos(permisosActuales);
         return productosCache;
     } catch (err) {
         if (tabla) {
             tabla.clear().draw();
         } else {
-            renderizarTablaFallback([], rolActual);
+            renderizarTablaFallback([], permisosActuales);
         }
         mostrarToastProducto(`Error al listar productos: ${err?.message || 'Error desconocido'}`, 'danger');
         return [];
@@ -492,7 +528,7 @@ export async function listarProductos() {
 }
 
 export function abrirModalNuevoProducto() {
-    if (rolActual !== 'ADMIN') return false;
+    if (!permisosActuales.canCreateProducts) return false;
     const doc = getDoc();
     if (!doc) return false;
 
@@ -517,7 +553,7 @@ export function abrirModalNuevoProducto() {
     if (prodDiscontinued) prodDiscontinued.checked = false;
     if (modalTitulo) modalTitulo.textContent = 'Nuevo Producto';
 
-    aplicarPermisosRolProductos('ADMIN');
+    aplicarPermisosProductos(permisosActuales);
     modalInstancia?.show();
     return true;
 }
@@ -552,8 +588,7 @@ export function editarProducto(id) {
     if (prodDiscontinued) prodDiscontinued.checked = resolvedDisc;
     if (modalTitulo) modalTitulo.textContent = `Editar Producto #${resolvedId}`;
 
-    // Si es EMPLEADO, deshabilita #prodName y #prodDiscontinued, permitiendo sólo precio y existencias
-    aplicarPermisosRolProductos(rolActual);
+    aplicarPermisosProductos(permisosActuales);
     modalInstancia?.show();
     return prod;
 }
@@ -622,8 +657,8 @@ export async function guardarProductoModal(eventOrData = null) {
     const esEdicion = Boolean(idStr !== '');
     const numericId = esEdicion ? Number(idStr) : null;
 
-    if (!esEdicion && rolActual !== 'ADMIN') {
-        const msg = 'Operación no permitida: Solo un Administrador puede crear nuevos productos.';
+    if (!esEdicion && !permisosActuales.canCreateProducts) {
+        const msg = 'Operación no permitida: No tienes permisos para crear nuevos productos.';
         if (alertModalEl) {
             alertModalEl.textContent = msg;
             setElementVisibility(alertModalEl, true);
@@ -644,8 +679,8 @@ export async function guardarProductoModal(eventOrData = null) {
         ? eventOrData.discontinued
         : (prodDiscontinuedEl ? Boolean(prodDiscontinuedEl.checked) : false);
 
-    // Si es EMPLEADO editando, preservar el nombre y estado descontinuado originales del producto
-    if (esEdicion && rolActual === 'EMPLEADO') {
+    // Si no tiene permiso para editar detalles, preservar el nombre y estado descontinuado originales del producto
+    if (esEdicion && !permisosActuales.canEditProductDetails) {
         const prodOriginal = productosCache.find((p) => Number(p?.productId ?? p?.ProductId) === numericId);
         if (prodOriginal) {
             rawName = prodOriginal.productName ?? prodOriginal.ProductName ?? rawName;
@@ -937,10 +972,10 @@ export function mostrarConflicto409(id, problemDetails = null) {
     };
 }
 
-// Descontinúa lógicamente un producto (PUT /api/Products/{id} con discontinued = true) (TASK-F3-05)
+// Descontinúa lógicamente un producto (discontinued = true)
 export async function manejarDescontinuacionProducto(id, prod = null) {
-    if (rolActual !== 'ADMIN') {
-        return { ok: false, status: 403, message: 'Solo un Administrador puede descontinuar productos.' };
+    if (!permisosActuales.canDiscontinueProducts) {
+        return { ok: false, status: 403, message: 'No tienes permisos para descontinuar productos.' };
     }
 
     const numericId = Number(id);
@@ -990,10 +1025,10 @@ export async function manejarDescontinuacionProducto(id, prod = null) {
     }
 }
 
-// Ejecuta eliminación física o captura HTTP 409 Conflict ofreciendo descontinuación lógica (TASK-F3-05)
+// Ejecuta eliminación física o captura HTTP 409 Conflict ofreciendo descontinuación lógica
 export async function manejarEliminacionProducto(id, btnElement = null, { skipConfirm = false } = {}) {
-    if (rolActual !== 'ADMIN') {
-        return { ok: false, status: 403, message: 'Solo un Administrador puede eliminar productos.' };
+    if (!permisosActuales.canDeleteProducts) {
+        return { ok: false, status: 403, message: 'No tienes permisos para eliminar productos.' };
     }
 
     const numericId = Number(id);
@@ -1113,7 +1148,7 @@ function inicializarTabla() {
                 orderable: false,
                 searchable: false,
                 className: 'text-center text-nowrap',
-                render: (_, __, row) => renderAccionesProducto(row, rolActual)
+                render: (_, __, row) => renderAccionesProducto(row, permisosActuales)
             }
         ]
     }));
@@ -1173,9 +1208,9 @@ function configurarEventos(doc = getDoc()) {
 
             if (action === 'editar') {
                 editarProducto(id);
-            } else if (action === 'descontinuar' && rolActual === 'ADMIN') {
+            } else if (action === 'descontinuar' && permisosActuales.canDiscontinueProducts) {
                 await manejarDescontinuacionProducto(id);
-            } else if (action === 'eliminar' && rolActual === 'ADMIN') {
+            } else if (action === 'eliminar' && permisosActuales.canDeleteProducts) {
                 await manejarEliminacionProducto(id, btn);
             }
         });
@@ -1186,7 +1221,8 @@ export async function initProductsController(customDoc = null) {
     const doc = getDoc(customDoc);
     if (!doc) return;
 
-    const usuario = (typeof authService.getCurrentUser === 'function' && authService.getCurrentUser())
+    const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)
+        || (typeof authService.getCurrentUser === 'function' && authService.getCurrentUser())
         || await authService.checkSession();
     if (!usuario) {
         if (typeof window !== 'undefined' && window.location) {
@@ -1195,9 +1231,16 @@ export async function initProductsController(customDoc = null) {
         return;
     }
 
-    rolActual = resolveConnectedRole(usuario, authService);
+    permisosActuales = normalizarPermisosProductos(resolveConnectedPermissions(usuario, authService));
+    if (!permisosActuales.canViewProductsAdmin) {
+        if (typeof window !== 'undefined' && window.location) {
+            window.location.href = './catalogo.html?error=403';
+        }
+        return;
+    }
+
     initNavbar(usuario, authService);
-    aplicarPermisosRolProductos(rolActual);
+    aplicarPermisosProductos(permisosActuales);
 
     const modalEl = doc.getElementById('modalProducto');
     if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {

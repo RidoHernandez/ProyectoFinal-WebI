@@ -34,7 +34,7 @@
     <!-- Barra de Navegación Principal -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
         <div class="container-fluid px-4">
-            <a class="navbar-brand fw-bold" href="./catalogo.html">Northwind API</a>
+            <a class="navbar-brand fw-bold" href="./catalogo.html">Northwind Comercial</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navPrincipal"
                     aria-controls="navPrincipal" aria-expanded="false" aria-label="Mostrar navegación">
                 <span class="navbar-toggler-icon"></span>
@@ -57,9 +57,7 @@
                 <div class="d-flex align-items-center gap-2">
                     <span class="text-light small d-flex align-items-center gap-1 me-2">
                         Usuario: <strong id="lblUsuario" class="text-info">Cargando...</strong>
-                        <span id="badgeRol" class="badge rounded-pill bg-secondary ms-1">ROL</span>
                     </span>
-                    <button id="btnPerfilApiKey" type="button" class="btn btn-outline-warning btn-sm">Mi API Key</button>
                     <button id="btnLogout" type="button" class="btn btn-outline-danger btn-sm">Cerrar Sesión</button>
                 </div>
             </div>
@@ -161,7 +159,7 @@
                         <a href="./pedidos.html" id="lnkVerMisPedidos" class="btn btn-sm btn-outline-success fw-semibold">Ver en Mis Pedidos</a>
                     </div>
 
-                    <!-- Formulario de compra exclusivo para rol CLIENTE -->
+                    <!-- Formulario de compra -->
                     <section id="seccionCompraCatalogo" class="d-none" hidden aria-labelledby="tituloCompraCatalogo">
                         <h6 id="tituloCompraCatalogo" class="fw-bold border-bottom pb-2 mb-3">Realizar Compra</h6>
                         <form id="formCompraCatalogo" aria-labelledby="tituloCompraCatalogo" novalidate>

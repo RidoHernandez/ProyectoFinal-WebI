@@ -1,27 +1,23 @@
-# Arquitectura Frontend Vanilla JS (Northwind API)
+# Arquitectura Frontend Vanilla JS (Portal Comercial Northwind)
 
-Arquitectura limpia modular basada en Vanilla JS (ES Modules, HTML5, Bootstrap 5).
+Arquitectura limpia modular basada en Vanilla JS (ES Modules, HTML5, Bootstrap 5, jQuery y DataTables).
 
 ## Estructura del Proyecto
 
 ```
-c:\Proyectos\Web II\Final\
-├── index.html                   # Redirección inicial a login
-├── login.html                   # Vista de autenticación (Login / Register)
-├── productos.html               # Vista CRUD de Productos (/api/Products)
-├── clientes.html                # Vista de Clientes (/api/Customers)
-├── pedidos.html                 # Vista de Pedidos (/api/Orders)
 ├── SPECS/                       # Especificaciones funcionales y requisitos
 └── src/
-    ├── api/                     # Clientes HTTP, configuración y transporte de datos
+    ├── api/                     # Clientes HTTP, configuración fija y transporte de datos
+    │   ├── config.js            # URL fija del servidor y endpoints centralizados
     │   └── httpClient.js        # Cliente HTTP centralizado (fetch, promise, ajax, callbacks)
     ├── controllers/             # Controladores de interfaz y orquestación de eventos
-    │   ├── loginController.js   # Manejador de la vista de Login
+    │   ├── loginController.js   # Manejador de la vista de Login y Registro
     │   ├── productsController.js# Manejador de la vista de Productos
+    │   ├── catalogController.js # Manejador de la vista de Catálogo comercial
     │   ├── customersController.js# Manejador de la vista de Clientes
-    │   └── ordersController.js  # Manejador de la vista de Pedidos
+    │   └── ordersController.js  # Manejador de la vista de Pedidos y Órdenes
     ├── services/                # Capa de servicios para comunicación con backend
-    │   ├── authService.js       # Servicio de autenticación y gestión de sesión
+    │   ├── authService.js       # Servicio de autenticación, sesión firmada y capacidades de UI
     │   ├── productService.js    # Servicio de productos
     │   ├── customerService.js   # Servicio de clientes
     │   └── orderService.js      # Servicio de pedidos
@@ -30,18 +26,25 @@ c:\Proyectos\Web II\Final\
     │   ├── customerModel.js     # Modelo de Cliente
     │   └── orderModel.js        # Modelo de Pedido
     ├── utils/                   # Utilidades y funciones transversales
+    │   ├── authGuard.js         # Guardia de navegación por capacidades de UI
     │   └── tableHelpers.js      # Helpers para DataTables, sanitización XSS y navbar
-    └── views/                   # Componentes y plantillas reutilizables
-        └── README.md
+    └── views/                   # Vistas HTML de la aplicación
+        ├── index.html
+        ├── login.html
+        ├── productos.html
+        ├── catalogo.html
+        ├── clientes.html
+        ├── pedidos.html
+        └── ordenes.html
 ```
 
 ## Reglas de Arquitectura
 1. **ES Modules nativos:** Todos los scripts se importan usando `<script type="module">` y rutas relativas con extensión `.js`.
 2. **Separación de responsabilidades:**
-   - `views / html`: Estructura semántica sin lógica incrustada.
+   - `views / html`: Estructura semántica sin lógica incrustada ni exposición de rutas de backend o roles.
    - `controllers`: Captura eventos DOM, valida entradas de UI y orquesta llamadas a servicios.
-   - `services`: Encapsula llamadas a endpoints HTTP y maneja errores de red.
+   - `services`: Encapsula llamadas al backend y maneja errores de red de forma sanitizada.
    - `models`: Estandariza estructuras de datos y validaciones de carga útil (payloads).
-   - `api`: Abstracción única de transporte (`httpClient.js`).
-   - `utils`: Helpers compartidos, sanitización contra XSS (`escapeHtml`).
-3. **Consistencia con Backend:** Todos los modelos y servicios reflejan exclusivamente los endpoints existentes en la API (`/api/Auth`, `/api/ApiKeys`, `/api/Products`, `/api/Customers`, `/api/Orders`).
+   - `api`: Abstracción única de transporte (`httpClient.js`) con URL fija.
+   - `utils`: Helpers compartidos, guardias por capacidades y sanitización contra XSS (`escapeHtml`).
+3. **Seguridad y Mínima Exposición:** La validación de roles reside exclusivamente en el backend (base de datos); el frontend no expone nombres de roles, no permite editar la URL del backend ni regenerar API Keys.

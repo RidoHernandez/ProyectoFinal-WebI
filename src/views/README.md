@@ -6,6 +6,6 @@ Este directorio está destinado a almacenar plantillas HTML reutilizables, parci
 - **Páginas de la aplicación:**
   - `index.html`: Enrutamiento / redirección inicial.
   - `login.html`: Autenticación y registro de usuarios.
-  - `productos.html`: Gestión de inventario de productos (`/api/Products`).
-  - `clientes.html`: Consulta y administración de clientes (`/api/Customers`).
-  - `pedidos.html`: Consulta y administración de pedidos (`/api/Orders`).
+  - `productos.html`: Gestión de inventario de productos.
+  - `clientes.html`: Consulta y directorio de clientes.
+  - `pedidos.html`: Consulta y gestión de pedidos.

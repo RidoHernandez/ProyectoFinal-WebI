@@ -159,13 +159,18 @@ const { authService } = await import('../src/services/authService.js');
 const catalogCtrl = await import('../src/controllers/catalogController.js');
 
 async function loginAs(username) {
+    const isAdmin = username === 'admin';
     globalThis.fetch = async () => makeResponse({
         status: 200,
         body: {
             userId: 10,
             username,
             apiKey: `ak_${username}_key`,
-            expiresAt: new Date(Date.now() + 86400000).toISOString()
+            expiresAt: new Date(Date.now() + 86400000).toISOString(),
+            defaultView: isAdmin ? './productos.html' : './catalogo.html',
+            permissions: isAdmin
+                ? { canViewProductsAdmin: true, canCreateProducts: true, canEditProductDetails: true, canEditProductPricingStock: true, canDeleteProducts: true, canDiscontinueProducts: true, canViewCustomers: true, canViewAllOrders: true, canUpdateOrderStatus: true, canCancelOwnOrders: false, canPurchaseCatalog: false }
+                : { canViewProductsAdmin: false, canCreateProducts: false, canEditProductDetails: false, canEditProductPricingStock: false, canDeleteProducts: false, canDiscontinueProducts: false, canViewCustomers: false, canViewAllOrders: false, canUpdateOrderStatus: false, canCancelOwnOrders: true, canPurchaseCatalog: true }
         }
     });
     await authService.login(username, 'Password123!');
@@ -236,6 +241,17 @@ test('Flujo completo de compra de CLIENTE crea orden vía POST /api/orders, desc
 
     const postOrderCalls = [];
     globalThis.fetch = async (url, options) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({
+                status: 200,
+                body: {
+                    userId: 99,
+                    username: 'cliente_compra',
+                    defaultView: './catalogo.html',
+                    permissions: { canPurchaseCatalog: true, canCancelOwnOrders: true }
+                }
+            });
+        }
         if (options?.method === 'POST' && url.endsWith('/orders')) {
             const payload = JSON.parse(options.body);
             postOrderCalls.push({ url, body: payload });

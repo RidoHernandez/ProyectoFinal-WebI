@@ -1,5 +1,5 @@
 import { authService } from "../services/authService.js";
-import { API_BASE_URL, STORAGE_KEYS, getBaseUrl } from "../api/httpClient.js";
+import { STORAGE_KEYS } from "../api/httpClient.js";
 import {
     getBruteForceState,
     recordFailedLoginAttempt,
@@ -24,18 +24,21 @@ function clearActiveLockoutInterval() {
 
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+)/i;
+const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|https?:\/\/localhost(?::\d+)?)/i;
 const GENERIC_HTTP_REASONS = new Set(['bad request', 'unauthorized', 'forbidden', 'not found']);
 
 /**
- * Determina la ruta de redirección según el rol asignado al usuario.
- * ADMIN y EMPLEADO -> ./productos.html
- * CLIENTE -> ./catalogo.html
+ * Determina la ruta de redirección usando la vista inicial autorizada por el backend.
  */
-export function resolveRedirectPath(role) {
-    const normalized = String(role || '').trim().toUpperCase();
-    if (normalized === 'ADMIN' || normalized === 'EMPLEADO') {
-        return './productos.html';
+export function resolveRedirectPath(sessionOrView = null) {
+    if (typeof sessionOrView === 'string' && sessionOrView.startsWith('./') && sessionOrView.endsWith('.html')) {
+        return sessionOrView;
+    }
+    if (sessionOrView && typeof sessionOrView === 'object' && typeof sessionOrView.defaultView === 'string') {
+        return sessionOrView.defaultView;
+    }
+    if (typeof authService.getDefaultView === 'function') {
+        return authService.getDefaultView();
     }
     return './catalogo.html';
 }
@@ -240,41 +243,11 @@ function hideAlert(alertEl) {
     alertEl.classList.add('d-none');
 }
 
-function persistApiBaseUrl(apiUrl) {
-    if (!apiUrl || typeof apiUrl !== 'string') return null;
-    const clean = apiUrl.trim().replace(/\/+$/, '');
-    if (!clean) return null;
-    try {
-        if (typeof localStorage !== 'undefined') {
-            localStorage.setItem(STORAGE_KEYS.API_URL, clean);
-        }
-    } catch {
-        // Ignorar errores de almacenamiento en entornos restringidos
-    }
-    return clean;
-}
-
-function resolveActiveRole(sessionResult = null) {
-    if (sessionResult && typeof sessionResult === 'object') {
-        if (sessionResult.role) return sessionResult.role;
-        if (sessionResult.rol) return sessionResult.rol;
-    }
-    if (typeof authService.getUserRole === 'function') {
-        const r = authService.getUserRole();
-        if (r) return r;
-    }
-    if (typeof authService.getCurrentUser === 'function') {
-        const u = authService.getCurrentUser();
-        if (u?.role) return u.role;
-    }
-    return 'CLIENTE';
-}
-
 export async function initLoginController(doc = typeof document !== 'undefined' ? document : null) {
     if (!doc) return;
     clearActiveLockoutInterval();
 
-    // 1. Si el usuario ya tiene sesión válida y activa, redirigir según su rol
+    // 1. Si el usuario ya tiene sesión válida y activa, redirigir a la vista inicial autorizada por el backend
     let alreadyAuthenticated = false;
     if (typeof authService.isAuthenticated === 'function') {
         alreadyAuthenticated = Boolean(authService.isAuthenticated());
@@ -284,9 +257,8 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
     }
 
     if (alreadyAuthenticated) {
-        const activeRole = resolveActiveRole();
         if (typeof window !== 'undefined' && window.location) {
-            window.location.href = resolveRedirectPath(activeRole);
+            window.location.href = resolveRedirectPath();
         }
         return;
     }
@@ -302,7 +274,6 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
     const txtLoginPassword = doc.getElementById('txtLoginPassword');
     const errLoginUsername = doc.getElementById('errLoginUsername');
     const errLoginPassword = doc.getElementById('errLoginPassword');
-    const txtApiUrl = doc.getElementById('txtApiUrl');
     const btnLogin = doc.getElementById('btnLogin');
     const lockoutBanner = doc.getElementById('lockoutBanner');
     const lblLockoutCountdown = doc.getElementById('lblLockoutCountdown');
@@ -336,14 +307,6 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
         } else if (reason === 'unauthorized') {
             showAlert(alertError, 'Debes iniciar sesión para acceder a este recurso.');
         }
-    }
-
-    // 3. Cargar URL configurada del Backend (no sensible, localStorage)
-    if (txtApiUrl) {
-        txtApiUrl.value = getBaseUrl() || API_BASE_URL;
-        txtApiUrl.addEventListener('change', () => {
-            persistApiBaseUrl(txtApiUrl.value);
-        });
     }
 
     // 4. Alternancia fluida entre pestañas de Login y Registro (compatible sin Bootstrap JS)
@@ -580,7 +543,6 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
 
         const username = txtLoginUsername ? txtLoginUsername.value.trim() : '';
         const password = txtLoginPassword ? txtLoginPassword.value : '';
-        const apiUrl = txtApiUrl ? persistApiBaseUrl(txtApiUrl.value) : null;
 
         const validation = validateLoginInput({ username, password });
         if (!validation.valid) {
@@ -613,12 +575,11 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
         }
 
         try {
-            const session = await authService.login(username, password, apiUrl);
+            const session = await authService.login(username, password);
             resetBruteForceState();
             clearActiveLockoutInterval();
-            const role = resolveActiveRole(session);
             if (typeof window !== 'undefined' && window.location) {
-                window.location.href = resolveRedirectPath(role);
+                window.location.href = resolveRedirectPath(session);
             }
         } catch (error) {
             const status = Number(error?.status || error?.problemDetails?.status) || 0;
@@ -654,7 +615,6 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
         const username = txtRegUsername ? txtRegUsername.value.trim() : '';
         const email = txtRegEmail ? txtRegEmail.value.trim() : '';
         const password = txtRegPassword ? txtRegPassword.value : '';
-        const apiUrl = txtApiUrl ? persistApiBaseUrl(txtApiUrl.value) : null;
 
         const validation = validateRegisterInput({ username, email, password });
 
@@ -710,28 +670,11 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
         }
 
         try {
-            const regResult = await authService.register(username, email, password, apiUrl);
+            const regResult = await authService.register(username, email, password);
 
-            // Garantizar que la sesión exista en sessionStorage con rol CLIENTE (sin sobrescribir la firma si authService ya la persistió)
-            try {
-                if (typeof sessionStorage !== 'undefined' && !sessionStorage.getItem(STORAGE_KEYS.AUTH_SESSION)) {
-                    const fallbackSession = {
-                        userId: regResult?.userId ?? regResult?.UserId ?? null,
-                        username: regResult?.username ?? regResult?.Username ?? username,
-                        role: 'CLIENTE',
-                        apiKey: regResult?.apiKey ?? regResult?.ApiKey ?? null,
-                        expiresAt: regResult?.expiresAt ?? regResult?.ExpiresAt ?? null,
-                        authenticatedAt: Date.now()
-                    };
-                    sessionStorage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify(fallbackSession));
-                }
-            } catch {
-                // Ignorar errores de acceso a sessionStorage
-            }
-
-            showAlert(alertSuccess, 'Cuenta de CLIENTE registrada exitosamente. Redirigiendo al catálogo...');
+            showAlert(alertSuccess, 'Cuenta registrada exitosamente. Redirigiendo al catálogo...');
             if (typeof window !== 'undefined' && window.location) {
-                window.location.href = './catalogo.html';
+                window.location.href = resolveRedirectPath(regResult);
             }
         } catch (error) {
             const friendlyMsg = extractProblemMessage(
@@ -763,7 +706,7 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
         } finally {
             if (btnRegister) {
                 btnRegister.disabled = false;
-                btnRegister.textContent = 'Registrarse como Cliente';
+                btnRegister.textContent = 'Crear Cuenta';
             }
         }
     });

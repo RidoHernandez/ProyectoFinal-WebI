@@ -229,12 +229,68 @@ function resetEnvironment(pathname = '/src/views/pedidos.html') {
     globalThis.window.confirm = () => true;
 }
 
+function mockBackendProfileFor(username) {
+    if (username === 'admin') {
+        return {
+            defaultView: './productos.html',
+            permissions: {
+                canViewProductsAdmin: true,
+                canCreateProducts: true,
+                canEditProductDetails: true,
+                canEditProductPricingStock: true,
+                canDeleteProducts: true,
+                canDiscontinueProducts: true,
+                canViewCustomers: true,
+                canViewAllOrders: true,
+                canUpdateOrderStatus: true,
+                canCancelOwnOrders: false,
+                canPurchaseCatalog: false
+            }
+        };
+    }
+    if (username.startsWith('emp_') || username === 'Robe' || username === 'Leo') {
+        return {
+            defaultView: './productos.html',
+            permissions: {
+                canViewProductsAdmin: true,
+                canCreateProducts: false,
+                canEditProductDetails: false,
+                canEditProductPricingStock: true,
+                canDeleteProducts: false,
+                canDiscontinueProducts: false,
+                canViewCustomers: true,
+                canViewAllOrders: true,
+                canUpdateOrderStatus: false,
+                canCancelOwnOrders: false,
+                canPurchaseCatalog: false
+            }
+        };
+    }
+    return {
+        defaultView: './catalogo.html',
+        permissions: {
+            canViewProductsAdmin: false,
+            canCreateProducts: false,
+            canEditProductDetails: false,
+            canEditProductPricingStock: false,
+            canDeleteProducts: false,
+            canDiscontinueProducts: false,
+            canViewCustomers: false,
+            canViewAllOrders: false,
+            canUpdateOrderStatus: false,
+            canCancelOwnOrders: true,
+            canPurchaseCatalog: true
+        }
+    };
+}
+
 async function loginMockUser(username) {
     const futureExp = new Date(Date.now() + 3600 * 1000).toISOString();
+    const profile = mockBackendProfileFor(username);
     const prevFetch = globalThis.fetch;
     globalThis.fetch = async () => makeResponse({
         status: 200,
-        body: { userId: 25, username, apiKey: `ak_${username}_f7`, expiresAt: futureExp }
+        body: { userId: 25, username, apiKey: `ak_${username}_f7`, expiresAt: futureExp, ...profile }
     });
     const session = await authService.login(username, 'Password123!');
     globalThis.fetch = prevFetch;
@@ -384,6 +440,9 @@ test('TASK-F7: ADMIN cambia estados con confirmaciones obligatorias, bloquea ENT
 
     const patchCalls = [];
     globalThis.fetch = async (url, options = {}) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 25, username: 'admin', ...mockBackendProfileFor('admin') } });
+        }
         if (options.method === 'PATCH') {
             const match = url.match(/\/orders\/(\d+)\/status$/);
             const id = Number(match[1]);
@@ -467,6 +526,9 @@ test('TASK-F7: CLIENTE solo puede cancelar sus propios pedidos en PENDIENTE, PEN
 
     const patchCalls = [];
     globalThis.fetch = async (url, options = {}) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 25, username: 'cliente_juan', ...mockBackendProfileFor('cliente_juan') } });
+        }
         if (options.method === 'PATCH') {
             const match = url.match(/\/orders\/(\d+)\/status$/);
             const id = Number(match[1]);
@@ -526,12 +588,17 @@ test('TASK-F7: EMPLEADO no tiene control de cambio de estado ni botón de cancel
     registerOrdenesDom(doc);
     await loginMockUser('emp_ventas');
 
-    globalThis.fetch = async () => makeResponse({
-        status: 200,
-        body: [
-            { orderId: 301, orderDate: '2026-11-24T00:00:00Z', shippedDate: null, status: 'PENDIENTE', freight: 0, shipName: 'Cliente X', shipCity: 'CDMX', shipCountry: 'México', total: 50, items: [] }
-        ]
-    });
+    globalThis.fetch = async (url) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 25, username: 'emp_ventas', ...mockBackendProfileFor('emp_ventas') } });
+        }
+        return makeResponse({
+            status: 200,
+            body: [
+                { orderId: 301, orderDate: '2026-11-24T00:00:00Z', shippedDate: null, status: 'PENDIENTE', freight: 0, shipName: 'Cliente X', shipCity: 'CDMX', shipCountry: 'México', total: 50, items: [] }
+            ]
+        });
+    };
 
     await ordersCtrl.initOrdersController(doc);
     const tbody = doc.getElementById('tbodyPedidos');
@@ -568,6 +635,9 @@ test('TASK-F7: Clientes unificados (Northwind + usuarios CLIENTE con clave diná
     ];
 
     globalThis.fetch = async (url) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 25, username: 'admin', ...mockBackendProfileFor('admin') } });
+        }
         if (url.endsWith('/customers/JP1')) {
             return makeResponse({ status: 200, body: unifiedCustomers[1] });
         }
@@ -611,6 +681,9 @@ test('TASK-F7 Regresion: confirmacion hacia PENDIENTE_ENVIO, sincronizacion de c
     let releasePatch = null;
 
     globalThis.fetch = async (url, options = {}) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 25, username: 'admin', ...mockBackendProfileFor('admin') } });
+        }
         if (options.method === 'PATCH') {
             patchCount += 1;
             const body = JSON.parse(options.body);

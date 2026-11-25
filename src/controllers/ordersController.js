@@ -16,7 +16,7 @@ import {
     formatCurrency,
     formatDate,
     initNavbar,
-    resolveConnectedRole,
+    resolveConnectedPermissions,
     clearTbody,
     setElementVisibility,
     extractProblemMessage,
@@ -24,17 +24,19 @@ import {
     bindModalDismiss
 } from "../utils/tableHelpers.js";
 
-// Guardia de navegación síncrona como primera instrucción ejecutable (TASK-F2-04 / TASK-F4-04)
-authGuard(['ADMIN', 'EMPLEADO', 'CLIENTE']);
-
-const ALLOWED_ROLES = ['ADMIN', 'EMPLEADO', 'CLIENTE'];
+// Guardia de navegación síncrona como primera instrucción ejecutable
+authGuard();
 
 let allOrdersCache = [];
 let visibleOrdersCache = [];
 const consultedOrderIds = new Set();
 const ownedOrderIds = new Set();
 const inFlightOrderIds = new Set();
-let rolActual = 'CLIENTE';
+let permisosActuales = {
+    canViewAllOrders: false,
+    canUpdateOrderStatus: false,
+    canCancelOwnOrders: false
+};
 let usuarioActual = null;
 let tabla = null;
 let currentModalOrderId = null;
@@ -75,8 +77,8 @@ function showDetailModalAlert(doc, message = '', visible = Boolean(message)) {
     setElementVisibility(alertEl, visible);
 }
 
-function isOrderCancellableByCurrentClient(order, statusCode) {
-    if (rolActual !== 'CLIENTE' || !order) return false;
+function isOrderCancellableByCurrentUser(order, statusCode) {
+    if (!permisosActuales.canCancelOwnOrders || !order) return false;
     if (!canClientCancelStatus(statusCode)) return false;
 
     const orderId = Number(order.orderId ?? order.OrderId);
@@ -102,12 +104,12 @@ function updateModalActionControls(doc, order = null, status = null) {
         return;
     }
 
-    const isAdmin = rolActual === 'ADMIN';
+    const canManageStatus = Boolean(permisosActuales.canUpdateOrderStatus);
     if (adminWrapper) {
-        setElementVisibility(adminWrapper, isAdmin);
+        setElementVisibility(adminWrapper, canManageStatus);
     }
 
-    if (isAdmin && selModalStatus) {
+    if (canManageStatus && selModalStatus) {
         selModalStatus.value = status.code;
         const isCancelled = status.code === ORDER_STATUS.CANCELADO.code;
         const isDelivered = status.code === ORDER_STATUS.ENTREGADO.code;
@@ -143,7 +145,7 @@ function updateModalActionControls(doc, order = null, status = null) {
     }
 
     if (btnCancelarModal) {
-        const canCancel = isOrderCancellableByCurrentClient(order, status.code);
+        const canCancel = isOrderCancellableByCurrentUser(order, status.code);
         setElementVisibility(btnCancelarModal, canCancel);
         btnCancelarModal.disabled = !canCancel;
         if (canCancel) {
@@ -299,7 +301,11 @@ export function resetOrdersState() {
     consultedOrderIds.clear();
     ownedOrderIds.clear();
     inFlightOrderIds.clear();
-    rolActual = 'CLIENTE';
+    permisosActuales = {
+        canViewAllOrders: false,
+        canUpdateOrderStatus: false,
+        canCancelOwnOrders: false
+    };
     usuarioActual = null;
     tabla = null;
     currentModalOrderId = null;
@@ -343,12 +349,12 @@ export function isOrderOwnedByClient(order, usuario) {
     return shipName.includes(rawUsername) || (compactUser.length >= 3 && compactShip === compactUser);
 }
 
-// Filtra las órdenes según el rol: ADMIN/EMPLEADO ven todas; CLIENTE solo propias o consultadas por ID
-export function filtrarOrdenesPorRol(orders = [], usuario = usuarioActual, consultedIds = consultedOrderIds) {
+// Filtra las órdenes según los permisos autorizados por el backend
+export function filtrarOrdenesPorPermisos(orders = [], usuario = usuarioActual, consultedIds = consultedOrderIds) {
     if (!Array.isArray(orders)) return [];
 
-    const role = resolveConnectedRole(usuario, authService);
-    if (role === 'ADMIN' || role === 'EMPLEADO') {
+    const perms = resolveConnectedPermissions(usuario, authService);
+    if (perms.canViewAllOrders) {
         return [...orders];
     }
 
@@ -437,7 +443,7 @@ export function renderizarTablaOrdenesFallback(
         tdEmpty.colSpan = 9;
         tdEmpty.setAttribute?.('colspan', '9');
         tdEmpty.className = 'text-center text-muted py-3';
-        tdEmpty.textContent = rolActual === 'CLIENTE'
+        tdEmpty.textContent = !permisosActuales.canViewAllOrders
             ? 'No hay órdenes asociadas a tu cuenta visibles actualmente. Ingresa tu N° de Orden en el buscador para consultarla.'
             : 'No se encontraron órdenes con los criterios seleccionados.';
         trEmpty.appendChild(tdEmpty);
@@ -495,9 +501,9 @@ export function renderizarTablaOrdenesFallback(
         btnVer.textContent = 'Ver Detalle';
         tdActions.appendChild(btnVer);
 
-        if (rolActual === 'ADMIN') {
+        if (permisosActuales.canUpdateOrderStatus) {
             tdActions.appendChild(buildAdminStatusSelectElement(doc, orderId, status));
-        } else if (isOrderCancellableByCurrentClient(order, status.code)) {
+        } else if (isOrderCancellableByCurrentUser(order, status.code)) {
             const btnCancelar = doc.createElement('button');
             btnCancelar.type = 'button';
             btnCancelar.className = 'btn btn-sm btn-outline-danger ms-1';
@@ -526,8 +532,8 @@ export function aplicarFiltrosOrdenes(customDoc = null, referenceDate = new Date
     const selEstado = doc?.getElementById('selEstadoOrden');
     const selectedStatus = selEstado?.value || 'ALL';
 
-    const byRole = filtrarOrdenesPorRol(allOrdersCache, usuarioActual, consultedOrderIds);
-    visibleOrdersCache = filtrarOrdenesPorEstado(byRole, selectedStatus, referenceDate);
+    const byPermission = filtrarOrdenesPorPermisos(allOrdersCache, usuarioActual, consultedOrderIds);
+    visibleOrdersCache = filtrarOrdenesPorEstado(byPermission, selectedStatus, referenceDate);
 
     const lblTotal = doc?.getElementById('lblTotalOrdenes');
     if (lblTotal) {
@@ -596,9 +602,9 @@ function inicializarTabla() {
                     const orderId = row?.orderId ?? '';
                     const status = OrderModel.resolveLogisticsStatus(row);
                     let html = `<button type="button" class="btn btn-sm btn-outline-primary" data-action="ver" data-id="${escapeHtml(orderId)}">Ver Detalle</button>`;
-                    if (rolActual === 'ADMIN') {
+                    if (permisosActuales.canUpdateOrderStatus) {
                         html += buildAdminStatusSelectHtml(orderId, status);
-                    } else if (isOrderCancellableByCurrentClient(row, status.code)) {
+                    } else if (isOrderCancellableByCurrentUser(row, status.code)) {
                         html += `<button type="button" class="btn btn-sm btn-outline-danger ms-1" data-action="cancelar" data-id="${escapeHtml(orderId)}">Cancelar Compra</button>`;
                     }
                     return html;
@@ -626,8 +632,8 @@ export async function cambiarEstadoOrden(orderId, targetStatus, customDoc = null
     showOrdersAlert(doc, '', false);
     showOrdersSuccess(doc, '', false);
 
-    if (rolActual !== 'ADMIN') {
-        const deniedMsg = 'Solo los administradores pueden cambiar el estado de los pedidos.';
+    if (!permisosActuales.canUpdateOrderStatus) {
+        const deniedMsg = 'No tienes permisos para cambiar el estado de los pedidos.';
         showOrdersAlert(doc, deniedMsg, true);
         return { ok: false, status: 403, message: deniedMsg };
     }
@@ -716,8 +722,8 @@ export async function cancelarPedidoCliente(orderId, customDoc = null) {
     showOrdersAlert(doc, '', false);
     showOrdersSuccess(doc, '', false);
 
-    if (rolActual !== 'CLIENTE') {
-        const deniedMsg = 'Esta acción está disponible únicamente para clientes sobre sus propios pedidos.';
+    if (!permisosActuales.canCancelOwnOrders) {
+        const deniedMsg = 'No tienes permisos para cancelar pedidos desde esta acción.';
         showOrdersAlert(doc, deniedMsg, true);
         return { ok: false, status: 403, message: deniedMsg };
     }
@@ -794,7 +800,7 @@ export async function listarOrdenes(customDoc = null) {
     showOrdersSuccess(doc, '', false);
 
     try {
-        const useMine = rolActual === 'CLIENTE' && typeof orderService.getMine === 'function';
+        const useMine = !permisosActuales.canViewAllOrders && typeof orderService.getMine === 'function';
         const data = useMine ? await orderService.getMine() : await orderService.getAll();
         allOrdersCache = Array.isArray(data) ? data : [];
         if (useMine) {
@@ -839,7 +845,7 @@ export async function verDetalleOrden(orderId, customDoc = null, preloadedOrder 
 
     const validId = validation.value;
 
-    if (rolActual === 'CLIENTE' && !preloadedOrder) {
+    if (!permisosActuales.canViewAllOrders && !preloadedOrder) {
         const isConsulted = consultedOrderIds.has(validId);
         const isVisible = visibleOrdersCache.some((o) => Number(o?.orderId) === validId);
         const cachedMatch = allOrdersCache.find((o) => Number(o?.orderId) === validId);
@@ -912,24 +918,24 @@ export async function buscarOrdenPorId(rawId, customDoc = null) {
     }
 }
 
-function adaptarVistaPorRol(doc) {
+function adaptarVistaPorPermisos(doc) {
     if (!doc) return;
 
-    const esCliente = rolActual === 'CLIENTE';
-    const esAdmin = rolActual === 'ADMIN';
+    const soloPropias = !permisosActuales.canViewAllOrders;
+    const puedeActualizarEstado = Boolean(permisosActuales.canUpdateOrderStatus);
     const infoCliente = doc.getElementById('infoFiltroCliente');
     if (infoCliente) {
-        setElementVisibility(infoCliente, esCliente);
+        setElementVisibility(infoCliente, soloPropias);
     }
 
     const lblSubtitulo = doc.getElementById('lblSubtituloOrdenes');
     if (lblSubtitulo) {
-        if (esAdmin) {
-            lblSubtitulo.textContent = 'Gestión integral de órdenes, seguimiento y cambio de estados logísticos (Backend: /api/orders)';
-        } else if (esCliente) {
-            lblSubtitulo.textContent = 'Consulta de tus órdenes, seguimiento y cancelación de pedidos activos (Backend: /api/orders)';
+        if (puedeActualizarEstado) {
+            lblSubtitulo.textContent = 'Gestión integral de órdenes, seguimiento y actualización de estados logísticos';
+        } else if (soloPropias) {
+            lblSubtitulo.textContent = 'Consulta de tus órdenes, seguimiento y cancelación de pedidos activos';
         } else {
-            lblSubtitulo.textContent = 'Consulta integral de órdenes y logística de envíos de solo lectura (Backend: /api/orders)';
+            lblSubtitulo.textContent = 'Consulta integral de órdenes y logística de envíos de solo lectura';
         }
     }
 }
@@ -1027,19 +1033,26 @@ export async function initOrdersController(customDoc = null) {
     const doc = getDoc(customDoc);
     if (!doc) return;
 
-    if (!authService.isAuthenticated() || !authService.hasRole(ALLOWED_ROLES)) {
+    if (!authService.isAuthenticated()) {
         return;
     }
 
-    const usuario = authService.getCurrentUser() || await authService.checkSession();
+    const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)
+        || authService.getCurrentUser()
+        || await authService.checkSession();
     if (!usuario) return;
 
     resetOrdersState();
     usuarioActual = usuario;
-    rolActual = resolveConnectedRole(usuario, authService);
+    const resolvedPerms = resolveConnectedPermissions(usuario, authService);
+    permisosActuales = {
+        canViewAllOrders: Boolean(resolvedPerms.canViewAllOrders),
+        canUpdateOrderStatus: Boolean(resolvedPerms.canUpdateOrderStatus),
+        canCancelOwnOrders: Boolean(resolvedPerms.canCancelOwnOrders)
+    };
 
     initNavbar(usuario, authService);
-    adaptarVistaPorRol(doc);
+    adaptarVistaPorPermisos(doc);
     inicializarTabla();
     configurarEventos(doc);
     await listarOrdenes(doc);
@@ -1049,8 +1062,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
     document.addEventListener('DOMContentLoaded', async () => {
         if (
             document.body?.getAttribute?.('data-auth-blocked') ||
-            !authService.isAuthenticated() ||
-            !authService.hasRole(ALLOWED_ROLES)
+            !authService.isAuthenticated()
         ) {
             return;
         }

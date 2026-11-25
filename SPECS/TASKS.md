@@ -1,12 +1,12 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
 documento: Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
-version: 1.7.0
+version: 2.0.0
 estado_global: DONE
-ultima_actualizacion: 2026-11-24
+ultima_actualizacion: 2026-11-25
 formato_agente: AI-READABLE-TASKS-V1
-referencia_spec: ReqProyectoWEB.md (v1.7.0)
-backend_status: EXTENDED_CUSTOMERS_ORDERS_V3
+referencia_spec: ReqProyectoWEB.md (v2.0.0)
+backend_status: HARDENED_DB_RBAC_V4
 ---
 
 # Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
@@ -35,7 +35,8 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | **Fase 5** | Seguridad en cliente, validaciones Vanilla y buenas practicas | 5 | 5 | 0 | 0 | 100% |
 | **Fase 6** | Compras de clientes e historial propio de pedidos (Backend + Frontend) | 5 | 5 | 0 | 0 | 100% |
 | **Fase 7** | Clientes unificados, gestion de estados de pedidos y cancelacion con stock | 4 | 4 | 0 | 0 | 100% |
-| **TOTAL** | **Consolidado del Proyecto** | **35** | **35** | **0** | **0** | **100%** |
+| **Fase 8** | Endurecimiento de seguridad: RBAC exclusivo en BD, cero exposicion en frontend | 4 | 4 | 0 | 0 | 100% |
+| **TOTAL** | **Consolidado del Proyecto** | **39** | **39** | **0** | **0** | **100%** |
 
 ---
 
@@ -508,6 +509,56 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 
 ---
 
+### FASE 8: Endurecimiento de Seguridad y Menor Exposicion del Backend
+
+#### [TASK-F8-01] Backend: Tabla `roles`, FK `users.RoleId`, Migracion y Cuentas Semilla (`admin`, `Robe`, `Leo`)
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `APIkey/Models/Role.cs`, `APIkey/Models/User.cs`, `APIkey/Data/ContextDB.cs`, `APIkey/Migrations/*_AddRolesAndSeedUsers.cs`
+* **Requisitos:** `REQ-AUTH-002`, `REQ-AUTH-003`, `REQ-SEC-001`
+* **Descripcion:** Persistir roles en base de datos (`ADMIN`, `EMPLEADO`, `CLIENTE`) con llave foranea `users.RoleId` (default `CLIENTE`) y sembrar en la migracion 1 administrador (`admin`) y 2 empleados (`Robe`, `Leo`) con contrasenas PBKDF2-SHA256 seguras por defecto.
+* **Criterios de Aceptacion:**
+  * - [x] Tabla `roles` con registros `1=ADMIN`, `2=EMPLEADO`, `3=CLIENTE`.
+  * - [x] FK `users.RoleId` (default `3`) aplicada en migracion EF Core `AddRolesAndSeedUsers`.
+  * - [x] Cuentas semilla `admin`, `Robe` y `Leo` sembradas de forma idempotente con PBKDF2-SHA256.
+
+#### [TASK-F8-02] Backend: Autorizacion Exclusiva en BD, Eliminacion de `ResolveUserRole` y Eliminacion de `/api/apikeys/regenerate`
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `APIkey/Helpers/SecurityHelper.cs`, `APIkey/Filters/ApiKeyAttribute.cs`, `APIkey/Filters/RequireRolesAttribute.cs`, `APIkey/Controllers/AuthController.cs`, `APIkey/Controllers/ProductsController.cs`, `APIkey/Controllers/CustomersController.cs`, `APIkey/Controllers/OrdersController.cs`, eliminacion de `ApiKeysController.cs`
+* **Requisitos:** `REQ-AUTH-002`, `REQ-SEC-001`, `REQ-SEC-003`
+* **Descripcion:** Eliminar `ResolveUserRole` y listas hardcodeadas de usuarios; validar todos los roles exclusivamente en BD mediante `[ApiKey]` y `[RequireRoles]`; agregar `GET /api/auth/me` con banderas de UI (`UiPermissionsDto`) sin nombres de rol; eliminar `POST /api/apikeys/regenerate`.
+* **Criterios de Aceptacion:**
+  * - [x] `ResolveUserRole`, `AdminUsernames`, `EmployeeUsernames`, `ExcludedNonClientUsernames` eliminados del backend.
+  * - [x] `ApiKeysController` y `POST /api/apikeys/regenerate` eliminados.
+  * - [x] `POST /api/auth/login`, `POST /api/auth/register` y `GET /api/auth/me` retornan solo `DefaultView` y `Permissions` (cero nombres de rol).
+  * - [x] Todos los controladores validan autorizacion real en servidor contra MySQL.
+
+#### [TASK-F8-03] Frontend: Cero Exposicion de Roles, URL Fija, Sin Regeneracion de API Key y Sin Rutas de API en Textos
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `src/api/config.js`, `src/api/httpClient.js`, `src/services/authService.js`, `src/utils/authGuard.js`, `src/utils/tableHelpers.js`, `src/controllers/*.js`, `src/views/*.html`
+* **Requisitos:** `REQ-AUTH-002`, `REQ-SEC-001`, `REQ-SEC-005`
+* **Descripcion:** Eliminar toda referencia a roles (`ROLES`, whitelists, `#badgeRol`, `#badgeRoleCliente`, campo `role` en `sessionStorage`), eliminar el campo editable de URL del backend en `login.html` (`https://localhost:7039/api` fija), eliminar el boton/modal de regeneracion de API Key, y eliminar cualquier texto visible que revele rutas `/api/...`.
+* **Criterios de Aceptacion:**
+  * - [x] `authService.js` y `authGuard.js` operan exclusivamente con `permissions` y `defaultView` entregados por el backend y sincronizados con `GET /api/auth/me`.
+  * - [x] Eliminado `txtApiUrl` y lectura/escritura de `northwind_api_url` en `localStorage`.
+  * - [x] Eliminado `btnPerfilApiKey`, `modalApiKey` y `regenerateApiKey()`.
+  * - [x] Cero textos en `src/views/*.html` o controladores que expongan rutas `/api/...` o nombres de roles.
+
+#### [TASK-F8-04] Actualizacion de SPECS y Verificacion Integral (Unit + Backend Build + Migracion)
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `SPECS/ReqProyectoWEB.md`, `SPECS/TASKS.md`, `tests/*.test.mjs`
+* **Requisitos:** `ALL`
+* **Descripcion:** Actualizar documentacion en `SPECS/`, adaptar y ampliar pruebas automatizadas y validar compilacion, migracion y endpoints en vivo.
+* **Criterios de Aceptacion:**
+  * - [x] `SPECS/ReqProyectoWEB.md` y `SPECS/TASKS.md` actualizados a v2.0.0.
+  * - [x] `dotnet build` y `dotnet ef database update` exitosos sin errores.
+  * - [x] Suite automatizada de pruebas pasando al 100%.
+
+---
+
 ## 5. Historial de Modificaciones del Plan de Tareas
 
 | Fecha | Agente / Autor | Version | Accion Realizada |
@@ -519,3 +570,4 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | 2026-11-24 | @verifier | 1.5.0 | Completada y verificada al 100% la Fase 5 (`TASK-F5-01` a `TASK-F5-05`, proyecto consolidado 26/26): proteccion contra fuerza bruta en `src/utils/bruteForceProtection.js` e integracion con bloqueo de 15 min, cronometro persistente ante F5 y reto CAPTCHA en `src/views/login.html` y `src/controllers/loginController.js`; utilidades anti-XSS `src/utils/securityUtils.js` (`escapeHtml`, `sanitizeText`, `setSafeText`) y erradicacion total de `innerHTML` en `src/` (0 usos); proteccion anti-clickjacking (`frame-ancestors 'none'` y `window.top !== window.self`) en todas las vistas `src/views/*.html`; higiene de `sessionStorage`/`localStorage` y `logout()` seguro en `src/api/httpClient.js` y `src/services/authService.js`; auditoria estatica (0 endpoints inexistentes, 0 rutas rotas, importacion limpia de modulos ES) y suite existente 28/28 pasando (`tests/fase1.test.mjs` a `tests/fase4.test.mjs`). |
 | 2026-11-24 | Antigravity | 1.6.0 | Completada y verificada al 100% la Fase 6 (`TASK-F6-01` a `TASK-F6-05`, 31/31 tareas): vinculacion de ordenes en MySQL (`orders.UserID` y columnas de envio ampliadas mediante migracion EF Core `AddOrderUserIdAndWidenShipFields`), `POST /api/orders` transaccional y `GET /api/orders/mine` con `Items` y `Total` en `OrdersController.cs`, integracion en `orderModel.js`, `orderService.js`, `catalogController.js` y `ordersController.js` (`pedidos.html` / `ordenes.html`), 32/32 pruebas unitarias pasando y verificacion E2E en vivo exitosa. |
 | 2026-11-24 | Antigravity | 1.7.0 | Completada y verificada al 100% la Fase 7 (`TASK-F7-01` a `TASK-F7-04`, 35/35 tareas): directorio unificado de clientes en `CustomersController.cs` (Northwind + usuarios `CLIENTE` con clave dinamica determinista), migracion EF Core `AddOrderStatus` (`orders.Status`) y endpoint `PATCH /api/orders/{id}/status` en `OrdersController.cs` con reintegro atomico de stock y estado `CANCELADO` irreversible, controles RBAC y confirmaciones en `orderModel.js`, `orderService.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`, `dotnet build` limpio y 38/38 pruebas pasando (`tests/fase1.test.mjs` a `tests/fase7.test.mjs`). |
+| 2026-11-25 | Antigravity | 2.0.0 | Completada y verificada al 100% la Fase 8 (`TASK-F8-01` a `TASK-F8-04`, 39/39 tareas): tabla `roles` y FK `users.RoleId` con migracion `AddRolesAndSeedUsers` sembrando `admin`, `Robe` y `Leo` (PBKDF2-SHA256); eliminacion de `ResolveUserRole`, whitelists y `POST /api/apikeys/regenerate` en backend; autorizacion estricta en BD (`[ApiKey]` + `[RequireRoles]`) y `GET /api/auth/me` con banderas de UI; cero exposicion de roles, sin campo de URL editable, sin regeneracion de API Key y sin rutas `/api/...` visibles en frontend. |

@@ -4,26 +4,16 @@ import {
     getApiKey as httpGetApiKey,
     setApiConfig,
     clearApiConfig,
-    getBaseUrl,
     ENDPOINTS,
-    STORAGE_KEYS,
-    ROLES,
-    ADMIN_WHITELIST,
-    EMPLOYEE_WHITELIST,
-    EMPLOYEE_PREFIX
+    STORAGE_KEYS
 } from "../api/httpClient.js";
 
-export {
-    ROLES,
-    ADMIN_WHITELIST,
-    EMPLOYEE_WHITELIST,
-    EMPLOYEE_PREFIX
-};
-
-const SESSION_INTEGRITY_SALT = 'NW_FROZEN_RBAC_INTEGRITY_SALT_2026_V2';
+const SESSION_INTEGRITY_SALT = 'NW_DB_SESSION_INTEGRITY_SALT_2026_V3';
 const SENSITIVE_LOCAL_KEYS = Object.freeze([
     STORAGE_KEYS.API_KEY,
     STORAGE_KEYS.AUTH_SESSION,
+    STORAGE_KEYS.AUTH_FLASH_ERROR,
+    'northwind_api_url',
     'api_key',
     'apiKey',
     'auth_token',
@@ -32,6 +22,55 @@ const SENSITIVE_LOCAL_KEYS = Object.freeze([
     'session',
     'password'
 ]);
+
+const ALLOWED_VIEWS = new Set([
+    './productos.html',
+    './catalogo.html',
+    './clientes.html',
+    './pedidos.html',
+    './ordenes.html'
+]);
+
+export const PERMISSION_KEYS = Object.freeze([
+    'canViewProductsAdmin',
+    'canCreateProducts',
+    'canEditProductDetails',
+    'canEditProductPricingStock',
+    'canDeleteProducts',
+    'canDiscontinueProducts',
+    'canViewCustomers',
+    'canViewAllOrders',
+    'canUpdateOrderStatus',
+    'canCancelOwnOrders',
+    'canPurchaseCatalog'
+]);
+
+export function createEmptyPermissions() {
+    const perms = {};
+    for (const key of PERMISSION_KEYS) {
+        perms[key] = false;
+    }
+    return perms;
+}
+
+export function normalizePermissions(raw = null) {
+    const result = createEmptyPermissions();
+    if (!raw || typeof raw !== 'object') {
+        return result;
+    }
+
+    for (const key of PERMISSION_KEYS) {
+        const pascalKey = key.charAt(0).toUpperCase() + key.slice(1);
+        result[key] = Boolean(raw[key] ?? raw[pascalKey] ?? false);
+    }
+
+    return result;
+}
+
+export function normalizeDefaultView(rawView) {
+    const clean = typeof rawView === 'string' ? rawView.trim() : '';
+    return ALLOWED_VIEWS.has(clean) ? clean : './catalogo.html';
+}
 
 let inMemorySession = null;
 
@@ -47,47 +86,22 @@ export function purgeResidualLocalStorage() {
     }
 }
 
-export function resolveUserRole(username, options = {}) {
-    const isRegistration = typeof options === 'boolean'
-        ? options
-        : Boolean(options?.isRegistration);
-
-    if (isRegistration) {
-        return ROLES.CLIENTE;
-    }
-
-    if (!username || typeof username !== 'string') {
-        return ROLES.CLIENTE;
-    }
-
-    const normalized = username.trim().toLowerCase();
-    if (!normalized) {
-        return ROLES.CLIENTE;
-    }
-
-    if (ADMIN_WHITELIST.includes(normalized)) {
-        return ROLES.ADMIN;
-    }
-
-    if (normalized.startsWith(EMPLOYEE_PREFIX) || EMPLOYEE_WHITELIST.includes(normalized)) {
-        return ROLES.EMPLEADO;
-    }
-
-    return ROLES.CLIENTE;
-}
-
 export function computeSessionSignature(sessionData) {
     if (!sessionData || typeof sessionData !== 'object') {
         return '';
     }
 
+    const perms = normalizePermissions(sessionData.permissions);
+    const permFlags = PERMISSION_KEYS.map((k) => (perms[k] ? '1' : '0')).join('');
+
     const payload = [
         String(sessionData.userId ?? ''),
         String(sessionData.username ?? '').trim(),
-        String(sessionData.role ?? '').trim().toUpperCase(),
         String(sessionData.apiKey ?? '').trim(),
         String(sessionData.expiresAt ?? '').trim(),
         String(sessionData.authenticatedAt ?? ''),
+        normalizeDefaultView(sessionData.defaultView),
+        permFlags,
         SESSION_INTEGRITY_SALT
     ].join('|');
 
@@ -112,31 +126,20 @@ export function verifySessionIntegrity(sessionData) {
         return false;
     }
 
-    const { userId, username, role, apiKey, expiresAt, authenticatedAt, signature } = sessionData;
+    const { userId, username, apiKey, expiresAt, authenticatedAt, signature } = sessionData;
 
     if (userId === undefined || userId === null) return false;
     if (!username || typeof username !== 'string' || username.trim() === '') return false;
-    if (!role || typeof role !== 'string' || !Object.values(ROLES).includes(role)) return false;
     if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') return false;
     if (!expiresAt || typeof expiresAt !== 'string' || Number.isNaN(Date.parse(expiresAt))) return false;
     if (typeof authenticatedAt !== 'number' || !Number.isFinite(authenticatedAt)) return false;
     if (!signature || typeof signature !== 'string') return false;
 
     const expectedSignature = computeSessionSignature(sessionData);
-    if (signature !== expectedSignature) {
-        return false;
-    }
-
-    // Prevent privilege escalation if someone attempts to assign ADMIN/EMPLEADO to a non-eligible username
-    const maxEligibleRole = resolveUserRole(username, { isRegistration: false });
-    if (role !== ROLES.CLIENTE && role !== maxEligibleRole) {
-        return false;
-    }
-
-    return true;
+    return signature === expectedSignature;
 }
 
-function saveSignedSession({ userId, username, role, apiKey, expiresAt, authenticatedAt }, baseUrl = null) {
+function saveSignedSession({ userId, username, apiKey, expiresAt, authenticatedAt, defaultView, permissions }) {
     purgeResidualLocalStorage();
 
     const cleanUsername = String(username).trim();
@@ -146,14 +149,17 @@ function saveSignedSession({ userId, username, role, apiKey, expiresAt, authenti
     const normalizedAuthAt = typeof authenticatedAt === 'number' && Number.isFinite(authenticatedAt)
         ? authenticatedAt
         : Date.now();
+    const normalizedView = normalizeDefaultView(defaultView);
+    const normalizedPermissions = normalizePermissions(permissions);
 
     const sessionBase = {
         userId: normalizedUserId,
         username: cleanUsername,
-        role,
         apiKey: cleanApiKey,
         expiresAt: normalizedExpiresAt,
-        authenticatedAt: normalizedAuthAt
+        authenticatedAt: normalizedAuthAt,
+        defaultView: normalizedView,
+        permissions: normalizedPermissions
     };
 
     const signature = computeSessionSignature(sessionBase);
@@ -162,7 +168,7 @@ function saveSignedSession({ userId, username, role, apiKey, expiresAt, authenti
         signature
     };
 
-    setApiConfig(cleanApiKey, baseUrl);
+    setApiConfig(cleanApiKey);
 
     try {
         if (typeof sessionStorage !== 'undefined') {
@@ -181,10 +187,9 @@ function saveSignedSession({ userId, username, role, apiKey, expiresAt, authenti
 purgeResidualLocalStorage();
 
 export const authService = {
-    ROLES,
-    ADMIN_WHITELIST,
-    EMPLOYEE_WHITELIST,
-    resolveUserRole,
+    PERMISSION_KEYS,
+    createEmptyPermissions,
+    normalizePermissions,
     computeSessionSignature,
     verifySessionIntegrity,
     purgeResidualLocalStorage,
@@ -245,54 +250,56 @@ export const authService = {
             return null;
         }
 
+        const permissions = normalizePermissions(inMemorySession.permissions);
+        const defaultView = normalizeDefaultView(inMemorySession.defaultView);
+
         const user = {
             userId: inMemorySession.userId,
             username: inMemorySession.username,
-            role: inMemorySession.role,
             apiKey: inMemorySession.apiKey,
             expiresAt: inMemorySession.expiresAt,
-            authenticatedAt: inMemorySession.authenticatedAt
+            authenticatedAt: inMemorySession.authenticatedAt,
+            defaultView,
+            permissions
         };
 
         Object.defineProperties(user, {
             nombre: { value: inMemorySession.username, enumerable: false },
-            rol: { value: inMemorySession.role, enumerable: false },
-            autenticado: { value: true, enumerable: false },
-            baseUrl: { value: getBaseUrl(), enumerable: false }
+            autenticado: { value: true, enumerable: false }
         });
 
         return user;
     },
 
-    getUserRole() {
+    getPermissions() {
         const user = this.getCurrentUser();
-        return user ? user.role : null;
+        return user ? normalizePermissions(user.permissions) : createEmptyPermissions();
     },
 
-    hasRole(allowedRoles = []) {
+    hasPermission(requiredPermissions = null) {
         if (!this.isAuthenticated()) {
             return false;
         }
 
-        const currentRole = this.getUserRole();
-        if (!currentRole) {
-            return false;
-        }
-
-        if (allowedRoles === undefined || allowedRoles === null) {
+        if (!requiredPermissions) {
             return true;
         }
 
-        const rolesArray = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
-        if (rolesArray.length === 0) {
+        const perms = this.getPermissions();
+        const keys = Array.isArray(requiredPermissions)
+            ? requiredPermissions
+            : [requiredPermissions];
+
+        if (keys.length === 0) {
             return true;
         }
 
-        const normalizedAllowed = rolesArray
-            .map((r) => String(r || '').trim().toUpperCase())
-            .filter(Boolean);
+        return keys.some((key) => Boolean(perms[key]));
+    },
 
-        return normalizedAllowed.includes(currentRole.toUpperCase());
+    getDefaultView() {
+        const user = this.getCurrentUser();
+        return normalizeDefaultView(user?.defaultView);
     },
 
     getApiKey() {
@@ -314,16 +321,55 @@ export const authService = {
             userId: user.userId,
             username: user.username,
             nombre: user.username,
-            role: user.role,
-            rol: user.role,
             apiKey: user.apiKey,
             expiresAt: user.expiresAt,
             authenticatedAt: user.authenticatedAt,
-            baseUrl: getBaseUrl()
+            defaultView: user.defaultView,
+            permissions: user.permissions
         };
     },
 
-    async login(username, password, baseUrl = null) {
+    async refreshProfile() {
+        const current = this.getCurrentUser();
+        if (!current) {
+            return null;
+        }
+
+        try {
+            const response = await httpClient(ENDPOINTS.AUTH_ME, {
+                method: 'GET'
+            });
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    return null;
+                }
+                return current;
+            }
+
+            const data = await response.json();
+            const updatedUsername = String(data?.username ?? data?.Username ?? current.username).trim();
+            const updatedUserId = data?.userId ?? data?.UserId ?? current.userId;
+            const updatedView = normalizeDefaultView(data?.defaultView ?? data?.DefaultView ?? current.defaultView);
+            const updatedPermissions = normalizePermissions(data?.permissions ?? data?.Permissions ?? current.permissions);
+
+            saveSignedSession({
+                userId: updatedUserId,
+                username: updatedUsername,
+                apiKey: current.apiKey,
+                expiresAt: current.expiresAt,
+                authenticatedAt: current.authenticatedAt,
+                defaultView: updatedView,
+                permissions: updatedPermissions
+            });
+
+            return this.getCurrentUser();
+        } catch {
+            return current;
+        }
+    },
+
+    async login(username, password) {
         purgeResidualLocalStorage();
 
         if (!username || typeof username !== 'string' || username.trim() === '') {
@@ -335,17 +381,6 @@ export const authService = {
         }
 
         const cleanUsername = username.trim();
-        const cleanUrl = baseUrl && typeof baseUrl === 'string' && baseUrl.trim() !== ''
-            ? baseUrl.trim().replace(/\/+$/, '')
-            : null;
-
-        if (cleanUrl && typeof localStorage !== 'undefined') {
-            try {
-                localStorage.setItem(STORAGE_KEYS.API_URL, cleanUrl);
-            } catch {
-                // Ignore storage errors
-            }
-        }
 
         const response = await httpClient(ENDPOINTS.AUTH_LOGIN, {
             method: 'POST',
@@ -371,24 +406,25 @@ export const authService = {
         const resolvedUsername = String(data?.username ?? data?.Username ?? cleanUsername).trim();
         const apiKey = String(data?.apiKey ?? data?.ApiKey ?? '').trim();
         const expiresAt = data?.expiresAt ?? data?.ExpiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const defaultView = normalizeDefaultView(data?.defaultView ?? data?.DefaultView);
+        const permissions = normalizePermissions(data?.permissions ?? data?.Permissions);
 
         if (!apiKey) {
-            throw new Error('El servidor no devolvió una API Key válida.');
+            throw new Error('El servidor no devolvió una credencial válida.');
         }
-
-        const role = resolveUserRole(resolvedUsername, { isRegistration: false });
 
         return saveSignedSession({
             userId,
             username: resolvedUsername,
-            role,
             apiKey,
             expiresAt,
-            authenticatedAt: Date.now()
-        }, cleanUrl);
+            authenticatedAt: Date.now(),
+            defaultView,
+            permissions
+        });
     },
 
-    async register(username, email, password, baseUrl = null) {
+    async register(username, email, password) {
         purgeResidualLocalStorage();
 
         if (!username || typeof username !== 'string' || username.trim() === '') {
@@ -405,17 +441,6 @@ export const authService = {
 
         const cleanUsername = username.trim();
         const cleanEmail = email.trim();
-        const cleanUrl = baseUrl && typeof baseUrl === 'string' && baseUrl.trim() !== ''
-            ? baseUrl.trim().replace(/\/+$/, '')
-            : null;
-
-        if (cleanUrl && typeof localStorage !== 'undefined') {
-            try {
-                localStorage.setItem(STORAGE_KEYS.API_URL, cleanUrl);
-            } catch {
-                // Ignore storage errors
-            }
-        }
 
         const response = await httpClient(ENDPOINTS.AUTH_REGISTER, {
             method: 'POST',
@@ -442,82 +467,27 @@ export const authService = {
         const resolvedUsername = String(data?.username ?? data?.Username ?? cleanUsername).trim();
         const apiKey = String(data?.apiKey ?? data?.ApiKey ?? '').trim();
         const expiresAt = data?.expiresAt ?? data?.ExpiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const defaultView = normalizeDefaultView(data?.defaultView ?? data?.DefaultView ?? './catalogo.html');
+        const permissions = normalizePermissions(
+            data?.permissions ?? data?.Permissions ?? {
+                canCancelOwnOrders: true,
+                canPurchaseCatalog: true
+            }
+        );
 
         if (!apiKey) {
-            throw new Error('El servidor no devolvió una API Key válida tras el registro.');
+            throw new Error('El servidor no devolvió una credencial válida tras el registro.');
         }
-
-        // Autonomous registration strictly enforces the CLIENTE role
-        const role = resolveUserRole(resolvedUsername, { isRegistration: true });
 
         return saveSignedSession({
             userId,
             username: resolvedUsername,
-            role,
             apiKey,
             expiresAt,
-            authenticatedAt: Date.now()
-        }, cleanUrl);
-    },
-
-    async regenerateApiKey() {
-        if (!this.isAuthenticated()) {
-            throw new Error('No hay una sesión activa válida para regenerar la API Key.');
-        }
-
-        if (!this.hasRole([ROLES.ADMIN, ROLES.EMPLEADO])) {
-            throw new ApiError({
-                status: 403,
-                title: 'Acceso denegado',
-                detail: 'Solo los perfiles ADMIN y EMPLEADO están autorizados para regenerar su API Key.',
-                message: 'Solo los perfiles ADMIN y EMPLEADO están autorizados para regenerar su API Key.'
-            });
-        }
-
-        const currentSession = this.getCurrentUser();
-
-        const response = await httpClient(ENDPOINTS.APIKEYS_REGENERATE, {
-            method: 'POST'
+            authenticatedAt: Date.now(),
+            defaultView,
+            permissions
         });
-
-        if (!response.ok) {
-            const problem = response.problemDetails || {
-                status: response.status || 400,
-                title: 'Error al regenerar API Key',
-                detail: response.errorMessage || 'No fue posible regenerar la API Key.',
-                message: response.errorMessage || 'No fue posible regenerar la API Key.'
-            };
-            throw new ApiError(problem);
-        }
-
-        const data = await response.json();
-        const id = data?.id ?? data?.Id ?? null;
-        const clientIdentifier = data?.clientIdentifier ?? data?.ClientIdentifier ?? currentSession.username;
-        const newApiKey = String(data?.apiKey ?? data?.ApiKey ?? '').trim();
-        const createdAt = data?.createdAt ?? data?.CreatedAt ?? new Date().toISOString();
-        const isActive = data?.isActive ?? data?.IsActive ?? true;
-        const newExpiresAt = data?.expiresAt ?? data?.ExpiresAt ?? currentSession.expiresAt;
-
-        if (!newApiKey) {
-            throw new Error('El servidor no devolvió una nueva API Key válida.');
-        }
-
-        const updatedSession = saveSignedSession({
-            userId: currentSession.userId,
-            username: currentSession.username,
-            role: currentSession.role,
-            apiKey: newApiKey,
-            expiresAt: newExpiresAt,
-            authenticatedAt: currentSession.authenticatedAt
-        });
-
-        return {
-            ...updatedSession,
-            id,
-            clientIdentifier,
-            createdAt,
-            isActive
-        };
     },
 
     handleSessionExpired() {
