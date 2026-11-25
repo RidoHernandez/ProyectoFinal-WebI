@@ -1,10 +1,10 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
-version: 2.0.0
+version: 3.0.0
 estado_global: DONE
 ultima_actualizacion: 2026-11-25
 formato_agente: AI-READABLE-SPEC-V1
-backend_status: HARDENED_DB_RBAC_V4
+backend_status: JWT_BEARER_DB_RBAC_V5
 ---
 
 # Especificacion de Requisitos del Sistema y Arquitectura de Seguridad
@@ -13,7 +13,7 @@ backend_status: HARDENED_DB_RBAC_V4
 Este documento esta estructurado para ser analizado y actualizado de forma determinista por cualquier agente del enjambre. Al interactuar con este archivo o ejecutar tareas sobre el proyecto, respeta estrictamente las siguientes directrices:
 1. **Identificadores Unicos Inmutables:** Nunca modifiques el ID de un requisito existente (`REQ-[MODULO]-[NUMERO]`). Los correlativos identifican contractualmente cada compromiso del sistema.
 2. **Estados Validos:** Utiliza unicamente las etiquetas estandarizadas `[TODO]`, `[IN_PROGRESS]`, `[REVIEW]`, `[DONE]`, `[BLOCKED]`.
-3. **Seguridad y Menor Exposicion del Backend:** La maxima prioridad del sistema es minimizar la superficie de exposicion del backend ASP.NET Core (`C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH`). Toda autorizacion basada en roles se valida exclusivamente en servidor consultando la tabla `roles` y la relacion `users.RoleId` en MySQL. El frontend (construido unicamente con HTML, JavaScript, Bootstrap, jQuery y DataTables) nunca almacena, calcula ni muestra nombres de roles, nunca permite editar la URL del backend (`https://localhost:7039/api` fija), no expone rutas de la API en textos visibles ni incluye modulo de regeneracion de API Key.
+3. **Seguridad y Menor Exposicion del Backend:** La maxima prioridad del sistema es minimizar la superficie de exposicion del backend ASP.NET Core (`APIKey_ProyectoWEB_II`). Toda autenticacion opera exclusivamente mediante JWT Bearer (`Authorization: Bearer <token>`) con validacion de roles exclusivamente en servidor consultando la tabla `roles` y la relacion `users.RoleId` en MySQL. El frontend (construido unicamente con HTML, JavaScript, Bootstrap, jQuery y DataTables) nunca almacena, calcula ni muestra nombres de roles, nunca permite editar la URL del backend (`https://localhost:7039/api` fija), no expone rutas de la API en textos visibles ni conserva logica de API Key.
 4. **Actualizacion de Progreso:** Al marcar una subtarea como completada (`- [x]`), recalcula el porcentaje en la seccion "Resumen de Progreso" y actualiza el estado del requisito padre.
 5. **Registro de Cambios:** Documenta cualquier modificacion estructural, de criterios o de estado en la seccion final "Historial de Cambios del Agente".
 
@@ -31,35 +31,35 @@ Este documento esta estructurado para ser analizado y actualizado de forma deter
 
 ---
 
-## 3. Inventario del Backend y Mapeo de Contratos (Endurecido v2.0)
+## 3. Inventario del Backend y Mapeo de Contratos (JWT Bearer v3.0)
 
-El backend ASP.NET Core (`APIkey`, .NET 10 / MySQL en `C:\Users\yalan\Documentos\Prog WEB II\API_Equipo_BackEnd\API-KEY_AUTH`, ejecutando en `https://localhost:7039`) gestiona autenticacion y autorizacion estrictamente en servidor contra base de datos (`roles` + `users.RoleId`). La migracion `AddRolesAndSeedUsers` crea la tabla `roles` (`1=ADMIN`, `2=EMPLEADO`, `3=CLIENTE`), agrega la FK `users.RoleId` (default `3`) y siembra las cuentas `admin` (ADMIN), `Robe` (EMPLEADO) y `Leo` (EMPLEADO) con hashes PBKDF2-SHA256.
+El backend ASP.NET Core (`APIkey`, .NET 10 / MySQL en `APIKey_ProyectoWEB_II`, ejecutando en `https://localhost:7039`) gestiona autenticacion exclusivamente mediante **JWT Bearer (`Authorization: Bearer <token>`, HS256)** y autorizacion estrictamente en servidor contra base de datos (`roles` + `users.RoleId` en `JwtBearerEvents.OnTokenValidated`). La migracion `AddRolesAndSeedUsers` crea la tabla `roles` (`1=ADMIN`, `2=EMPLEADO`, `3=CLIENTE`), agrega la FK `users.RoleId` (default `3`) y siembra las cuentas `admin` (ADMIN), `Robe` (EMPLEADO) y `Leo` (EMPLEADO) con hashes PBKDF2-SHA256. La migracion `RemoveApiKeysTable` elimina por completo la tabla `api_keys` y toda logica de API Key.
 
 ### 3.1. AuthController (`/api/auth`)
-* `POST /api/auth/register`: Recibe `RegisterDto` (`Username`, `Email`, `Password` >= 8). Asigna estrictamente `RoleId = 3` (`CLIENTE`) en servidor, hashea contrasena con PBKDF2-SHA256 (100,000 iteraciones, salt 16 bytes), genera API Key (`ak_...`, vigencia 30 dias) y retorna `201 Created` con `AuthResponseDto` (`UserId`, `Username`, `ApiKey`, `ExpiresAt`, `DefaultView`, `Permissions` — **sin exponer nombres de rol**).
-* `POST /api/auth/login`: Valida credenciales contra PBKDF2 en tiempo constante, lee el rol desde `users.Role` en BD, invalida llaves anteriores activas, genera nueva API Key y retorna `200 OK` con `AuthResponseDto` (`UserId`, `Username`, `ApiKey`, `ExpiresAt`, `DefaultView`, `Permissions` — **sin exponer nombres de rol**).
-* `GET /api/auth/me`: Protegido por `[ApiKey]`. Consulta el usuario activo y su rol en BD en tiempo real y retorna `SessionProfileDto` (`UserId`, `Username`, `DefaultView`, `Permissions`) para sincronizar banderas de interfaz en cliente sin revelar roles.
+* `POST /api/auth/register`: (`[AllowAnonymous]`) Recibe `RegisterDto` (`Username`, `Email`, `Password` >= 8). Asigna estrictamente `RoleId = 3` (`CLIENTE`) en servidor, hashea contrasena con PBKDF2-SHA256 (100,000 iteraciones, salt 16 bytes), emite un token JWT HS256 (vigencia 120 min, sin claim `role` en el payload) y retorna `201 Created` con `AuthResponseDto` (`UserId`, `Username`, `Token`, `TokenType: "Bearer"`, `ExpiresAt`, `DefaultView`, `Permissions` — **sin exponer nombres de rol ni API Key**).
+* `POST /api/auth/login`: (`[AllowAnonymous]`) Valida credenciales contra PBKDF2 en tiempo constante, lee el rol desde `users.Role` en BD, emite un token JWT HS256 y retorna `200 OK` con `AuthResponseDto` (`UserId`, `Username`, `Token`, `TokenType: "Bearer"`, `ExpiresAt`, `DefaultView`, `Permissions` — **sin exponer nombres de rol ni API Key**).
+* `GET /api/auth/me`: Protegido por `[Authorize]` (JWT Bearer). Consulta el usuario activo y su rol en BD en tiempo real y retorna `SessionProfileDto` (`UserId`, `Username`, `DefaultView`, `Permissions`) para sincronizar banderas de interfaz en cliente sin revelar roles.
 
-### 3.2. Regeneracion de API Key (Eliminada)
-* El controlador `ApiKeysController` y el endpoint `POST /api/apikeys/regenerate` fueron **eliminados** del backend para reducir la superficie de ataque. Las llaves se emiten unicamente en `/api/auth/login` y `/api/auth/register`, y toda validacion de `X-API-KEY` exige correspondencia con un usuario activo y rol valido en MySQL (sin llave maestra estatica).
+### 3.2. Autenticacion por API Key (Eliminada por Completo)
+* Toda la infraestructura de API Key (`ApiKeyAttribute`, `RequireRolesAttribute`, `Models/ApiKey.cs`, `ApiKeysController`, tabla `api_keys`, `X-API-KEY`) fue **eliminada por completo** del sistema. Todas las peticiones privadas exigen exclusivamente `Authorization: Bearer <token>`.
 
 ### 3.3. ProductsController (`/api/Products`)
-* Protegido integralmente por `[ApiKey]` + `[RequireRoles]` validado en BD.
+* Protegido integralmente por `[Authorize]` y `[Authorize(Roles = ...)]` validado en BD en `OnTokenValidated`.
 * `GET /api/Products` y `GET /api/Products/{id}`: Cualquier usuario activo autenticado.
 * `POST /api/Products`: Exclusivo `ADMIN` (en BD). Retorna `403 Forbidden` para otros roles.
 * `PUT /api/Products/{id}`: `ADMIN` (todos los campos) o `EMPLEADO` (en servidor solo actualiza `UnitPrice` y `UnitsInStock`, manteniendo `ProductName` y `Discontinued` intactos). `CLIENTE` recibe `403 Forbidden`.
 * `DELETE /api/Products/{id}`: Exclusivo `ADMIN` (en BD). Retorna `409 Conflict` si existen ordenes vinculadas.
 
 ### 3.4. CustomersController (`/api/customers`)
-* Protegido por `[ApiKey]` y `[RequireRoles(ADMIN, EMPLEADO)]` validado en BD (`CLIENTE` recibe `403 Forbidden`).
+* Protegido por `[Authorize(Roles = "ADMIN,EMPLEADO")]` validado en BD (`CLIENTE` recibe `403 Forbidden`).
 * `GET /api/customers` y `GET /api/customers/{id}`: Unifican clientes historicos de Northwind (`customers`) y usuarios activos con `Role.Name == "CLIENTE"` en base de datos (sin listas blancas por nombre de usuario), generando claves dinamicas unicas de iniciales + autoincremento.
 
 ### 3.5. OrdersController (`/api/orders`)
-* Protegido por `[ApiKey]` y validacion de rol estrictamente desde base de datos (`user.Role.Name`; funcion `ResolveUserRole` y listas hardcodeadas eliminadas).
-* `GET /api/orders`: `[RequireRoles(ADMIN, EMPLEADO)]` (`CLIENTE` recibe `403 Forbidden`).
+* Protegido por `[Authorize]` y validacion de rol estrictamente desde base de datos (`user.Role.Name`; funcion `ResolveUserRole` y listas hardcodeadas eliminadas).
+* `GET /api/orders`: `[Authorize(Roles = "ADMIN,EMPLEADO")]` (`CLIENTE` recibe `403 Forbidden`).
 * `GET /api/orders/mine`: Cualquier usuario autenticado (filtra `Order.UserId == user.Id`).
 * `GET /api/orders/{id}`: `ADMIN` y `EMPLEADO` consultan cualquier orden; `CLIENTE` solo sus propias ordenes (`403 Forbidden` ante intento de acceso ajeno).
-* `POST /api/orders`: `[RequireRoles(CLIENTE)]` transaccional con descuento atomico de stock.
+* `POST /api/orders`: `[Authorize(Roles = "CLIENTE")]` transaccional con descuento atomico de stock.
 * `PATCH /api/orders/{id}/status`: Valida el rol directamente en BD (`ADMIN` 5 estados, `EMPLEADO` `403 Forbidden`, `CLIENTE` solo cancelacion de pedidos propios activos) con reintegro atomico de stock y estado `CANCELADO` irreversible.
 
 ### 3.6. Controladores Inexistentes en Backend
@@ -114,9 +114,9 @@ El frontend aplica el principio de minima exposicion y cero confianza en el clie
 
 ### 5.1. Almacenamiento Seguro de Sesion (`sessionStorage`) y URL Fija
 * **URL fija del backend:** `https://localhost:7039/api` fija en `src/api/config.js`; sin campo editable en `login.html` ni lectura de `localStorage`.
-* **Solo `sessionStorage` para sesion:** La sesion (`auth_session`) almacena unicamente `{ userId, username, apiKey, expiresAt, authenticatedAt, defaultView, permissions, signature }` **sin ningun campo `role` ni nombre de rol**.
+* **Solo `sessionStorage` para sesion JWT:** La sesion (`auth_session`) almacena unicamente `{ userId, username, token, tokenType, expiresAt, authenticatedAt, defaultView, permissions, signature }` (y `northwind_jwt_token` sincronizado) **sin ningun campo `role` ni nombre de rol**.
+* **Inyeccion `Authorization: Bearer <token>`:** `httpClient.js` adjunta exclusivamente la cabecera `Authorization: Bearer <token>` en peticiones privadas (sin `X-API-KEY`).
 * **Cero rutas de API visibles:** Ninguna vista HTML ni texto de interfaz revela rutas `/api/...` ni detalles internos del servidor.
-* **Sin regeneracion de API Key:** El boton `Mi API Key` y su modal fueron eliminados de todas las vistas y utilidades.
 
 ### 5.2. Guardias de Navegacion por Capacidades (`authGuard.js`)
 * Cada pagina privada valida autenticacion y la capacidad de UI correspondiente (`authGuard('canViewProductsAdmin')`, `authGuard('canViewCustomers')`, `authGuard()`), sincronizando en cada carga las capacidades reales desde `GET /api/auth/me`.
@@ -343,3 +343,4 @@ Para incorporar un nuevo requisito, agrega el siguiente bloque en el modulo corr
 | 2026-11-24 | Antigravity | REQ-CORE-003 | Extension controlada del backend (`APIkey`) y frontend para compras reales e historial propio de `CLIENTE` (15/15 requisitos `[DONE]`): `ApiKeyAttribute` propaga `ClientIdentifier`; migracion EF Core `AddOrderUserIdAndWidenShipFields` (`orders.UserID` + columnas de envio ampliadas); `POST /api/orders` transaccional y `GET /api/orders/mine` con `Items` y `Total` en `OrdersController.cs`; integracion en `orderModel.js`, `orderService.js`, `catalogController.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`; 32/32 pruebas unitarias y verificacion E2E en vivo contra MySQL exitosas. |
 | 2026-11-24 | Antigravity | REQ-CORE-004 | Extension controlada de clientes unificados y ciclo de estados/cancelacion de pedidos (16/16 requisitos `[DONE]`): `CustomersController.cs` unifica Northwind + cuentas activas `CLIENTE` con clave dinamica determinista (iniciales + autoincremento, correo en Empresa y usuario en Contacto); migracion EF Core `AddOrderStatus` (`orders.Status`); `PATCH /api/orders/{id}/status` en `OrdersController.cs` con RBAC (`ADMIN` 5 estados, `CLIENTE` cancelacion de pedidos propios activos), estado `CANCELADO` irreversible, bloqueo de cancelacion en `ENTREGADO` y reintegro atomico de stock; integracion en `orderModel.js`, `orderService.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`; 38/38 pruebas unitarias (`tests/fase1.test.mjs` a `tests/fase7.test.mjs`) y `dotnet build` sin errores. |
 | 2026-11-25 | Antigravity | ALL (v2.0.0) | Endurecimiento integral de seguridad y menor exposicion del backend (Fase 8): creacion de tabla `roles` (`ADMIN`, `EMPLEADO`, `CLIENTE`) y FK `users.RoleId` (default `CLIENTE`) en migracion EF Core `AddRolesAndSeedUsers` sembrando 1 admin (`admin`) y 2 empleados (`Robe`, `Leo`) con PBKDF2-SHA256; eliminacion de `ResolveUserRole` y listas hardcodeadas en backend; autorizacion estricta en servidor mediante `[ApiKey]` + `[RequireRoles]` en todos los controladores; nuevo endpoint `GET /api/auth/me` con banderas de UI (`UiPermissionsDto`) sin exponer nombres de roles; eliminacion de `POST /api/apikeys/regenerate` y su modulo/boton en frontend; eliminacion de exposicion de roles en frontend (`ROLES`, whitelists, `#badgeRol`, `#badgeRoleCliente`, campo `role` en `sessionStorage`); eliminacion del campo de configuracion de URL del backend en `login.html` y `localStorage` (`https://localhost:7039/api` fija); y eliminacion de textos que revelen rutas de la API en frontend. |
+| 2026-11-25 | Antigravity | ALL (v3.0.0) | Migracion integral de autenticacion y autorizacion desde API Key hacia JWT Bearer (`Authorization: Bearer <token>`): eliminacion total de logica `X-API-KEY` / `apiKey` / `northwind_api_key` en frontend (`config.js`, `httpClient.js`, `authService.js`), almacenamiento seguro exclusivo en `sessionStorage` (`northwind_jwt_token` + `auth_session` firmada con validacion de `exp` JWT y `expiresAt`), correccion de guardia `DOMContentLoaded` en `productsController.js`, y actualizacion completa de la suite `tests/*.test.mjs` para verificar autenticacion exclusivamente JWT. |

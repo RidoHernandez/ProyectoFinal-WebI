@@ -130,20 +130,20 @@ export async function parseProblemDetails(response) {
     return normalizeProblemDetails(payload, response.status);
 }
 
-export function getApiKey() {
+export function getAuthToken() {
     try {
         if (typeof sessionStorage !== 'undefined') {
-            const directKey = sessionStorage.getItem(STORAGE_KEYS.API_KEY);
-            if (directKey && directKey.trim() !== '') {
-                return directKey.trim();
+            const directToken = sessionStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+            if (directToken && directToken.trim() !== '') {
+                return directToken.trim();
             }
 
             const rawSession = sessionStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
             if (rawSession) {
                 try {
                     const parsed = JSON.parse(rawSession);
-                    if (parsed?.apiKey && typeof parsed.apiKey === 'string') {
-                        return parsed.apiKey.trim();
+                    if (parsed?.token && typeof parsed.token === 'string') {
+                        return parsed.token.trim();
                     }
                 } catch {
                     // Ignore malformed session JSON
@@ -156,13 +156,13 @@ export function getApiKey() {
     return null;
 }
 
-export function setApiConfig(apiKey) {
+export function setAuthToken(token) {
     try {
-        if (apiKey && typeof sessionStorage !== 'undefined') {
-            sessionStorage.setItem(STORAGE_KEYS.API_KEY, apiKey.trim());
+        if (token && typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token.trim());
         }
         if (typeof localStorage !== 'undefined') {
-            localStorage.removeItem(STORAGE_KEYS.API_KEY);
+            localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
             localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
             localStorage.removeItem('northwind_api_url');
         }
@@ -172,23 +172,23 @@ export function setApiConfig(apiKey) {
 }
 
 const SENSITIVE_LOCAL_KEYS = Object.freeze([
-    STORAGE_KEYS.API_KEY,
+    STORAGE_KEYS.AUTH_TOKEN,
     STORAGE_KEYS.AUTH_SESSION,
     STORAGE_KEYS.AUTH_FLASH_ERROR,
     'northwind_api_url',
-    'api_key',
-    'apiKey',
     'auth_token',
     'token',
+    'jwt',
+    'access_token',
     'user',
     'session',
     'password'
 ]);
 
-export function clearApiConfig() {
+export function clearAuthToken() {
     try {
         if (typeof sessionStorage !== 'undefined') {
-            sessionStorage.removeItem(STORAGE_KEYS.API_KEY);
+            sessionStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
             sessionStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
             sessionStorage.removeItem(STORAGE_KEYS.AUTH_FLASH_ERROR);
             sessionStorage.removeItem('northwind_discontinued_products');
@@ -213,7 +213,7 @@ function isOnLoginPage() {
 function handleUnauthorized(endpoint, options = {}) {
     if (isPublicEndpoint(endpoint)) return;
 
-    clearApiConfig();
+    clearAuthToken();
 
     if (options.skipAuthRedirect) return;
     if (typeof window === 'undefined' || !window.location) return;
@@ -237,14 +237,14 @@ function buildRequestHeaders(endpoint, customHeaders = {}, body = null) {
         ...normalizedCustom
     };
 
-    const apiKey = getApiKey();
+    const token = getAuthToken();
     const isPublic = isPublicEndpoint(endpoint);
-    const hasApiKeyHeader = Object.keys(headers).some(
-        (key) => key.toLowerCase() === 'x-api-key' && Boolean(headers[key])
+    const hasAuthorizationHeader = Object.keys(headers).some(
+        (key) => key.toLowerCase() === 'authorization' && Boolean(headers[key])
     );
 
-    if (apiKey && !isPublic && !hasApiKeyHeader) {
-        headers['X-API-KEY'] = apiKey;
+    if (token && !isPublic && !hasAuthorizationHeader) {
+        headers['Authorization'] = `Bearer ${token}`;
     }
 
     return headers;

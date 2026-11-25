@@ -1255,6 +1255,13 @@ export async function initProductsController(customDoc = null) {
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('DOMContentLoaded', async () => {
+        if (
+            document.body?.getAttribute?.('data-auth-blocked') ||
+            !authService.isAuthenticated() ||
+            !authService.hasPermission('canViewProductsAdmin')
+        ) {
+            return;
+        }
         await initProductsController(document);
     });
 }

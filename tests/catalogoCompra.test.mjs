@@ -111,7 +111,7 @@ class MockDocument {
 
 function setupCatalogDom(doc) {
     const ids = [
-        'lblUsuario', 'badgeRol', 'btnPerfilApiKey', 'btnLogout',
+        'lblUsuario', 'btnLogout',
         'navItemProductos', 'navProductos', 'navItemCatalogo', 'navCatalogo',
         'navItemClientes', 'navClientes', 'navItemPedidos', 'navPedidos',
         'alertContainer403', 'lblTotalCatalogo',
@@ -158,6 +158,13 @@ globalThis.window = {
 const { authService } = await import('../src/services/authService.js');
 const catalogCtrl = await import('../src/controllers/catalogController.js');
 
+function makeMockJwt(username) {
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const exp = Math.floor(Date.now() / 1000) + 7200;
+    const body = Buffer.from(JSON.stringify({ sub: '10', unique_name: username, exp })).toString('base64url');
+    return `${header}.${body}.sig_${username}`;
+}
+
 async function loginAs(username) {
     const isAdmin = username === 'admin';
     globalThis.fetch = async () => makeResponse({
@@ -165,7 +172,8 @@ async function loginAs(username) {
         body: {
             userId: 10,
             username,
-            apiKey: `ak_${username}_key`,
+            token: makeMockJwt(username),
+            tokenType: 'Bearer',
             expiresAt: new Date(Date.now() + 86400000).toISOString(),
             defaultView: isAdmin ? './productos.html' : './catalogo.html',
             permissions: isAdmin

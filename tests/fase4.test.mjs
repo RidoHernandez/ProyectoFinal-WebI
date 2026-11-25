@@ -397,16 +397,25 @@ function mockProfileFor(username) {
     };
 }
 
+function makeMockJwt(username) {
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const exp = Math.floor(Date.now() / 1000) + 7200;
+    const body = Buffer.from(JSON.stringify({ sub: '10', unique_name: username, exp })).toString('base64url');
+    return `${header}.${body}.sig_${username}_f4`;
+}
+
 async function loginMockUser(username) {
     const futureExp = new Date(Date.now() + 3600 * 1000).toISOString();
     const profile = mockProfileFor(username);
+    const token = makeMockJwt(username);
     const prevFetch = globalThis.fetch;
     globalThis.fetch = async () => makeResponse({
         status: 200,
         body: {
             userId: 10,
             username,
-            apiKey: `ak_${username}_f4`,
+            token,
+            tokenType: 'Bearer',
             expiresAt: futureExp,
             ...profile
         }
@@ -418,7 +427,7 @@ async function loginMockUser(username) {
 
 function registerClientesDom(doc) {
     const ids = [
-        'lblUsuario', 'badgeRol', 'btnPerfilApiKey', 'btnLogout',
+        'lblUsuario', 'btnLogout',
         'navItemProductos', 'navProductos', 'navItemCatalogo', 'navCatalogo',
         'navItemClientes', 'navClientes', 'navItemPedidos', 'navPedidos',
         'alertContainer403', 'lblTotalClientes', 'alertClientes',
@@ -438,7 +447,7 @@ function registerClientesDom(doc) {
 
 function registerOrdenesDom(doc) {
     const ids = [
-        'lblUsuario', 'badgeRol', 'btnPerfilApiKey', 'btnLogout',
+        'lblUsuario', 'btnLogout',
         'navItemProductos', 'navProductos', 'navItemCatalogo', 'navCatalogo',
         'navItemClientes', 'navClientes', 'navItemPedidos', 'navPedidos',
         'alertContainer403', 'lblTotalOrdenes', 'lblSubtituloOrdenes', 'alertOrdenes',
@@ -471,7 +480,7 @@ function registerOrdenesDom(doc) {
 
 test('TASK-F4-01: CustomerModel (minimización 3 campos, validación anti-traversal) y customerService (solo lectura)', async () => {
     resetEnvironment('/src/views/clientes.html');
-    await loginMockUser('admin');
+    const adminSession = await loginMockUser('admin');
 
     assert.equal(CUSTOMER_ID_PATTERN.test('ALFKI'), true);
     assert.equal(validateCustomerId(' ALFKI ').value, 'ALFKI');
@@ -523,7 +532,8 @@ test('TASK-F4-01: CustomerModel (minimización 3 campos, validación anti-traver
     const all = await customerService.getAll();
     assert.equal(captured.at(-1).url, 'https://localhost:7039/api/customers');
     assert.equal(captured.at(-1).options.method, 'GET');
-    assert.equal(captured.at(-1).options.headers['X-API-KEY'], 'ak_admin_f4');
+    assert.equal(captured.at(-1).options.headers['Authorization'], `Bearer ${adminSession.token}`);
+    assert.equal(captured.at(-1).options.headers['X-API-KEY'], undefined);
     assert.equal(all.length, 2);
     assert.deepEqual(Object.keys(all[0]), ['customerId', 'companyName', 'contactName']);
 

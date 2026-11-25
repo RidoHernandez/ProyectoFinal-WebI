@@ -379,16 +379,25 @@ function mockProfileFor(username) {
     return { defaultView: './catalogo.html', permissions: CLIENT_PERMS };
 }
 
+function makeMockJwt(username) {
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const exp = Math.floor(Date.now() / 1000) + 7200;
+    const body = Buffer.from(JSON.stringify({ sub: '1', unique_name: username, exp })).toString('base64url');
+    return `${header}.${body}.sig_${username}`;
+}
+
 async function loginMockUser(username) {
     const futureExp = new Date(Date.now() + 3600 * 1000).toISOString();
     const profile = mockProfileFor(username);
+    const token = makeMockJwt(username);
     const prevFetch = globalThis.fetch;
     globalThis.fetch = async () => makeResponse({
         status: 200,
         body: {
             userId: 1,
             username,
-            apiKey: `ak_${username}_key`,
+            token,
+            tokenType: 'Bearer',
             expiresAt: futureExp,
             ...profile
         }
@@ -400,7 +409,7 @@ async function loginMockUser(username) {
 
 function registerProductosDomElements(doc) {
     const ids = [
-        'lblUsuario', 'badgeRol', 'btnPerfilApiKey', 'btnLogout',
+        'lblUsuario', 'btnLogout',
         'navItemProductos', 'navProductos', 'navItemCatalogo', 'navCatalogo',
         'navItemClientes', 'navClientes', 'navItemPedidos', 'navPedidos',
         'alertContainer403', 'lblTotalProductos', 'btnNuevoProducto',
@@ -425,7 +434,7 @@ function registerProductosDomElements(doc) {
 
 function registerCatalogoDomElements(doc) {
     const ids = [
-        'lblUsuario', 'badgeRol', 'btnPerfilApiKey', 'btnLogout',
+        'lblUsuario', 'btnLogout',
         'navItemProductos', 'navProductos', 'navItemCatalogo', 'navCatalogo',
         'navItemClientes', 'navClientes', 'navItemPedidos', 'navPedidos',
         'alertContainer403', 'lblTotalCatalogo',
@@ -441,7 +450,7 @@ function registerCatalogoDomElements(doc) {
 
 test('TASK-F3-01: productService (getAll con ProductsSummaryDto, getById, create, update, delete y discontinue)', async () => {
     resetEnvironment('/src/views/productos.html');
-    await loginMockUser('admin');
+    const adminSession = await loginMockUser('admin');
 
     const captured = [];
 
@@ -463,7 +472,8 @@ test('TASK-F3-01: productService (getAll con ProductsSummaryDto, getById, create
     const products = await productService.getAll();
     assert.equal(captured.at(-1).url, 'https://localhost:7039/api/Products');
     assert.equal(captured.at(-1).options.method, 'GET');
-    assert.equal(captured.at(-1).options.headers['X-API-KEY'], 'ak_admin_key');
+    assert.equal(captured.at(-1).options.headers['Authorization'], `Bearer ${adminSession.token}`);
+    assert.equal(captured.at(-1).options.headers['X-API-KEY'], undefined);
     assert.equal(Array.isArray(products), true);
     assert.equal(products.length, 2);
     assert.equal(products.totalProducts, 2);

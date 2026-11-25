@@ -8,8 +8,8 @@ Arquitectura limpia modular basada en Vanilla JS (ES Modules, HTML5, Bootstrap 5
 ├── SPECS/                       # Especificaciones funcionales y requisitos
 └── src/
     ├── api/                     # Clientes HTTP, configuración fija y transporte de datos
-    │   ├── config.js            # URL fija del servidor y endpoints centralizados
-    │   └── httpClient.js        # Cliente HTTP centralizado (fetch, promise, ajax, callbacks)
+    │   ├── config.js            # URL fija del servidor, claves JWT y endpoints centralizados
+    │   └── httpClient.js        # Cliente HTTP centralizado con Authorization Bearer JWT (fetch, promise, ajax, callbacks)
     ├── controllers/             # Controladores de interfaz y orquestación de eventos
     │   ├── loginController.js   # Manejador de la vista de Login y Registro
     │   ├── productsController.js# Manejador de la vista de Productos
@@ -47,4 +47,4 @@ Arquitectura limpia modular basada en Vanilla JS (ES Modules, HTML5, Bootstrap 5
    - `models`: Estandariza estructuras de datos y validaciones de carga útil (payloads).
    - `api`: Abstracción única de transporte (`httpClient.js`) con URL fija.
    - `utils`: Helpers compartidos, guardias por capacidades y sanitización contra XSS (`escapeHtml`).
-3. **Seguridad y Mínima Exposición:** La validación de roles reside exclusivamente en el backend (base de datos); el frontend no expone nombres de roles, no permite editar la URL del backend ni regenerar API Keys.
+3. **Seguridad y Mínima Exposición (JWT Bearer):** La autenticación opera exclusivamente mediante tokens JWT (`Authorization: Bearer <token>`) almacenados únicamente en `sessionStorage`. La validación de roles reside exclusivamente en el backend (base de datos); el frontend no expone nombres de roles ni permite editar la URL del backend.

@@ -2,7 +2,7 @@ export const API_BASE_URL = 'https://localhost:7039/api';
 export const DEFAULT_BASE_URL = 'https://localhost:7039';
 
 export const STORAGE_KEYS = Object.freeze({
-    API_KEY: 'northwind_api_key',
+    AUTH_TOKEN: 'northwind_jwt_token',
     AUTH_SESSION: 'auth_session',
     AUTH_FLASH_ERROR: 'auth_flash_error'
 });

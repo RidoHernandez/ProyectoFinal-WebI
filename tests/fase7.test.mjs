@@ -284,13 +284,21 @@ function mockBackendProfileFor(username) {
     };
 }
 
+function makeMockJwt(username) {
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const exp = Math.floor(Date.now() / 1000) + 7200;
+    const body = Buffer.from(JSON.stringify({ sub: '25', unique_name: username, exp })).toString('base64url');
+    return `${header}.${body}.sig_${username}_f7`;
+}
+
 async function loginMockUser(username) {
     const futureExp = new Date(Date.now() + 3600 * 1000).toISOString();
     const profile = mockBackendProfileFor(username);
+    const token = makeMockJwt(username);
     const prevFetch = globalThis.fetch;
     globalThis.fetch = async () => makeResponse({
         status: 200,
-        body: { userId: 25, username, apiKey: `ak_${username}_f7`, expiresAt: futureExp, ...profile }
+        body: { userId: 25, username, token, tokenType: 'Bearer', expiresAt: futureExp, ...profile }
     });
     const session = await authService.login(username, 'Password123!');
     globalThis.fetch = prevFetch;
@@ -299,7 +307,7 @@ async function loginMockUser(username) {
 
 function registerOrdenesDom(doc) {
     const ids = [
-        'lblUsuario', 'badgeRol', 'btnPerfilApiKey', 'btnLogout',
+        'lblUsuario', 'btnLogout',
         'navItemProductos', 'navProductos', 'navItemCatalogo', 'navCatalogo',
         'navItemClientes', 'navClientes', 'navItemPedidos', 'navPedidos',
         'alertContainer403', 'lblTotalOrdenes', 'lblSubtituloOrdenes',
@@ -393,7 +401,7 @@ test('TASK-F7: OrderModel 5 estados, normalización, reglas de transición y can
 
 test('TASK-F7: orderService.updateStatus envia PATCH /api/orders/{id}/status y valida entradas', async () => {
     resetEnvironment('/src/views/pedidos.html');
-    await loginMockUser('admin');
+    const adminSession = await loginMockUser('admin');
 
     let called = 0;
     let lastReq = null;
@@ -420,7 +428,8 @@ test('TASK-F7: orderService.updateStatus envia PATCH /api/orders/{id}/status y v
     assert.equal(called, 1);
     assert.equal(lastReq.url, 'https://localhost:7039/api/orders/10500/status');
     assert.equal(lastReq.options.method, 'PATCH');
-    assert.equal(lastReq.options.headers['X-API-KEY'], 'ak_admin_f7');
+    assert.equal(lastReq.options.headers['Authorization'], `Bearer ${adminSession.token}`);
+    assert.equal(lastReq.options.headers['X-API-KEY'], undefined);
     assert.deepEqual(JSON.parse(lastReq.options.body), { status: 'EN_TRANSITO' });
     assert.equal(updated.status, 'EN_TRANSITO');
 });
@@ -611,7 +620,7 @@ test('TASK-F7: Clientes unificados (Northwind + usuarios CLIENTE con clave diná
     resetEnvironment('/src/views/clientes.html');
     const doc = globalThis.document;
     const ids = [
-        'lblUsuario', 'badgeRol', 'btnPerfilApiKey', 'btnLogout',
+        'lblUsuario', 'btnLogout',
         'navItemProductos', 'navProductos', 'navItemCatalogo', 'navCatalogo',
         'navItemClientes', 'navClientes', 'navItemPedidos', 'navPedidos',
         'alertContainer403', 'lblTotalClientes', 'alertClientes',

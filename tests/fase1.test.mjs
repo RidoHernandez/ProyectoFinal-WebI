@@ -19,6 +19,13 @@ function createMemoryStorage() {
     };
 }
 
+function makeMockJwt(payload = {}, offsetSeconds = 7200) {
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const exp = Math.floor(Date.now() / 1000) + offsetSeconds;
+    const body = Buffer.from(JSON.stringify({ sub: '1', unique_name: 'test', exp, ...payload })).toString('base64url');
+    return `${header}.${body}.mock_signature`;
+}
+
 globalThis.localStorage = createMemoryStorage();
 globalThis.sessionStorage = createMemoryStorage();
 globalThis.window = {
@@ -57,13 +64,15 @@ function makeResponse({ status = 200, body = null, ok = status >= 200 && status 
     };
 }
 
-test('TASK-F1-01: Configuracion centralizada y construccion de URLs fija', () => {
+test('TASK-F1-01: Configuracion centralizada y construccion de URLs fija con STORAGE_KEYS JWT', () => {
     resetEnvironment();
     assert.equal(config.API_BASE_URL, 'https://localhost:7039/api');
+    assert.equal(config.STORAGE_KEYS.AUTH_TOKEN, 'northwind_jwt_token');
+    assert.equal(config.STORAGE_KEYS.AUTH_SESSION, 'auth_session');
+    assert.equal(config.STORAGE_KEYS.API_KEY, undefined);
     assert.equal(config.AUTH_LOGIN, '/auth/login');
     assert.equal(config.AUTH_REGISTER, '/auth/register');
     assert.equal(config.AUTH_ME, '/auth/me');
-    assert.equal(config.APIKEYS_REGENERATE, undefined);
     assert.equal(config.PRODUCTS, '/Products');
     assert.equal(config.CUSTOMERS, '/customers');
     assert.equal(config.ORDERS, '/orders');
@@ -87,7 +96,7 @@ test('TASK-F1-01: Configuracion centralizada y construccion de URLs fija', () =>
     assert.equal(config.isPublicEndpoint(''), false);
 });
 
-test('TASK-F1-02: Inyeccion de X-API-KEY desde sessionStorage y endpoints publicos', async () => {
+test('TASK-F1-02: Inyeccion de Authorization Bearer JWT desde sessionStorage y endpoints publicos', async () => {
     resetEnvironment();
 
     const capturedCalls = [];
@@ -96,47 +105,49 @@ test('TASK-F1-02: Inyeccion de X-API-KEY desde sessionStorage y endpoints public
         return makeResponse({ status: 200, body: { ok: true } });
     };
 
-    // Sin API key: endpoint publico debe funcionar sin bloquear ni enviar X-API-KEY
+    // Sin token: endpoint publico debe funcionar sin bloquear ni enviar Authorization
     await httpMod.httpClient(config.AUTH_LOGIN, {
         method: 'POST',
         body: JSON.stringify({ username: 'u', password: 'p' })
     });
     assert.equal(capturedCalls[0].url, 'https://localhost:7039/api/auth/login');
-    assert.equal(capturedCalls[0].options.headers['X-API-KEY'], undefined);
+    assert.equal(capturedCalls[0].options.headers['Authorization'], undefined);
 
-    // Con API key en localStorage solamente: no debe usarse como sesion activa
-    globalThis.localStorage.setItem('northwind_api_key', 'OLD-LOCAL-KEY');
-    assert.equal(httpMod.getApiKey(), null);
+    // Con token en localStorage solamente: no debe usarse como sesion activa
+    globalThis.localStorage.setItem('northwind_jwt_token', 'OLD.LOCAL.JWT');
+    assert.equal(httpMod.getAuthToken(), null);
 
-    // Con API key en sessionStorage: debe inyectarse en GET, POST, PUT, DELETE
-    httpMod.setApiConfig('ak_session_123');
-    assert.equal(globalThis.localStorage.getItem('northwind_api_key'), null);
-    assert.equal(httpMod.getApiKey(), 'ak_session_123');
+    // Con JWT en sessionStorage: debe inyectarse Authorization: Bearer en GET, POST, PUT, DELETE
+    const sessionJwt = makeMockJwt({ unique_name: 'session_user' });
+    httpMod.setAuthToken(sessionJwt);
+    assert.equal(globalThis.localStorage.getItem('northwind_jwt_token'), null);
+    assert.equal(httpMod.getAuthToken(), sessionJwt);
 
     for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {
         await httpMod.httpClient(config.PRODUCTS, { method });
         const last = capturedCalls.at(-1);
-        assert.equal(last.options.headers['X-API-KEY'], 'ak_session_123');
+        assert.equal(last.options.headers['Authorization'], `Bearer ${sessionJwt}`);
+        assert.equal(last.options.headers['X-API-KEY'], undefined);
     }
 
-    // No duplicar cabecera si se pasa 'x-api-key' en minusculas
+    // No duplicar cabecera si se pasa 'authorization' en minusculas
     await httpMod.httpClient(config.PRODUCTS, {
         method: 'GET',
-        headers: { 'x-api-key': 'custom_override' }
+        headers: { authorization: 'Bearer custom_override' }
     });
     const lastCustom = capturedCalls.at(-1);
-    assert.equal(lastCustom.options.headers['x-api-key'], 'custom_override');
-    assert.equal(lastCustom.options.headers['X-API-KEY'], undefined);
+    assert.equal(lastCustom.options.headers['authorization'], 'Bearer custom_override');
+    assert.equal(lastCustom.options.headers['Authorization'], undefined);
 
     // Endpoint publico por URL completa tampoco debe disparar limpieza en 401
     globalThis.fetch = async () => makeResponse({ status: 401, body: { status: 401, detail: 'Credenciales invalidas' } });
     await httpMod.httpClient('http://localhost:5009/api/auth/login', { method: 'POST' });
-    assert.equal(httpMod.getApiKey(), 'ak_session_123');
+    assert.equal(httpMod.getAuthToken(), sessionJwt);
 });
 
 test('TASK-F1-03: Normalizacion de ProblemDetails (RFC 7807) y ocultamiento de stack traces', async () => {
     resetEnvironment();
-    httpMod.setApiConfig('ak_valid');
+    httpMod.setAuthToken(makeMockJwt());
 
     const cases = [
         {
@@ -215,24 +226,25 @@ test('TASK-F1-03: Normalizacion de ProblemDetails (RFC 7807) y ocultamiento de s
 
 test('TASK-F1-04: Interceptor 401 limpia sessionStorage, redirige y evita loop en login.html', async () => {
     resetEnvironment('/src/views/productos.html');
-    httpMod.setApiConfig('ak_expired');
-    globalThis.sessionStorage.setItem('auth_session', JSON.stringify({ username: 'ana', apiKey: 'ak_expired' }));
+    const expiredJwt = makeMockJwt({ unique_name: 'ana' }, -60);
+    httpMod.setAuthToken(expiredJwt);
+    globalThis.sessionStorage.setItem('auth_session', JSON.stringify({ username: 'ana', token: expiredJwt }));
 
     globalThis.fetch = async () => makeResponse({
         status: 401,
-        body: { status: 401, title: 'Unauthorized', detail: 'API Key expirada' }
+        body: { status: 401, title: 'Unauthorized', detail: 'Token JWT expirado' }
     });
 
     await httpMod.httpClient('/api/Products');
-    assert.equal(globalThis.sessionStorage.getItem('northwind_api_key'), null);
+    assert.equal(globalThis.sessionStorage.getItem('northwind_jwt_token'), null);
     assert.equal(globalThis.sessionStorage.getItem('auth_session'), null);
     assert.equal(globalThis.window.location.href, './login.html?reason=session_expired');
 
     // En login.html NO debe redirigir (evitar loop infinito)
     resetEnvironment('/src/views/login.html');
-    httpMod.setApiConfig('ak_expired');
+    httpMod.setAuthToken(expiredJwt);
     await httpMod.httpClient('/api/Products');
-    assert.equal(globalThis.sessionStorage.getItem('northwind_api_key'), null);
+    assert.equal(globalThis.sessionStorage.getItem('northwind_jwt_token'), null);
     assert.equal(globalThis.window.location.href, 'http://localhost:3000/src/views/login.html');
 
     // En endpoint publico /api/auth/login NO debe redirigir ni limpiar por error 401 de credenciales
@@ -242,22 +254,25 @@ test('TASK-F1-04: Interceptor 401 limpia sessionStorage, redirige y evita loop e
 
     // En 403 Forbidden NO debe destruir la sesion
     resetEnvironment('/src/views/productos.html');
-    httpMod.setApiConfig('ak_cliente');
+    const clientJwt = makeMockJwt({ unique_name: 'cliente' });
+    httpMod.setAuthToken(clientJwt);
     globalThis.fetch = async () => makeResponse({ status: 403, body: { status: 403, detail: 'Forbidden' } });
     await httpMod.httpClient('/api/Products');
-    assert.equal(httpMod.getApiKey(), 'ak_cliente');
+    assert.equal(httpMod.getAuthToken(), clientJwt);
     assert.equal(globalThis.window.location.href, 'http://localhost:3000/src/views/productos.html');
 });
 
-test('authService: login, checkSession y logout operan sobre sessionStorage sin exponer roles', async () => {
+test('authService: login, checkSession y logout operan sobre sessionStorage con JWT sin exponer roles', async () => {
     resetEnvironment('/src/views/login.html');
-    const futureExp = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const futureExp = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    const adminJwt = makeMockJwt({ sub: '1', unique_name: 'admin' });
     globalThis.fetch = async () => makeResponse({
         status: 200,
         body: {
             userId: 1,
             username: 'admin',
-            apiKey: 'ak_admin_session_001',
+            token: adminJwt,
+            tokenType: 'Bearer',
             expiresAt: futureExp,
             defaultView: './productos.html',
             permissions: { canViewProductsAdmin: true, canCreateProducts: true }
@@ -267,25 +282,27 @@ test('authService: login, checkSession y logout operan sobre sessionStorage sin 
     const loggedSession = await authService.login('admin', 'AdminSecret123!');
     assert.equal(loggedSession.username, 'admin');
     assert.equal(loggedSession.role, undefined);
+    assert.equal(loggedSession.tokenType, 'Bearer');
     assert.equal(loggedSession.permissions.canViewProductsAdmin, true);
-    assert.equal(authService.getApiKey(), 'ak_admin_session_001');
-    assert.equal(globalThis.localStorage.getItem('northwind_api_key'), null);
+    assert.equal(authService.getToken(), adminJwt);
+    assert.equal(globalThis.localStorage.getItem('northwind_jwt_token'), null);
     assert.equal(globalThis.localStorage.getItem('northwind_api_url'), null);
 
     const session = await authService.checkSession();
     assert.equal(session.autenticado, true);
-    assert.equal(session.apiKey, 'ak_admin_session_001');
+    assert.equal(session.token, adminJwt);
+    assert.equal(session.tokenType, 'Bearer');
     assert.equal(session.role, undefined);
     assert.equal(session.defaultView, './productos.html');
 
     authService.logout();
-    assert.equal(authService.getApiKey(), null);
+    assert.equal(authService.getToken(), null);
     assert.equal(globalThis.window.location.href, './login.html');
 });
 
 test('TASK-F1-03: Sanitizacion de detalles de base de datos y rutas en errores 4xx', async () => {
     resetEnvironment();
-    httpMod.setApiConfig('ak_valid');
+    httpMod.setAuthToken(makeMockJwt());
 
     globalThis.fetch = async () => makeResponse({
         status: 409,
@@ -304,9 +321,10 @@ test('TASK-F1-03: Sanitizacion de detalles de base de datos y rutas en errores 4
     assert.equal(res409.problemDetails.title.includes('DbUpdateException'), false);
 });
 
-test('ajaxRequest y callbackRequest: inyeccion X-API-KEY, ProblemDetails y 401 interceptor', async () => {
+test('ajaxRequest y callbackRequest: inyeccion Authorization Bearer JWT, ProblemDetails y 401 interceptor', async () => {
     resetEnvironment('/src/views/productos.html');
-    httpMod.setApiConfig('ak_xhr_test');
+    const xhrJwt = makeMockJwt({ unique_name: 'xhr_user' });
+    httpMod.setAuthToken(xhrJwt);
 
     const xhrLog = [];
     let nextXhrBehavior = { status: 204, responseText: '' };
@@ -343,7 +361,8 @@ test('ajaxRequest y callbackRequest: inyeccion X-API-KEY, ProblemDetails y 401 i
     const delRes = await httpMod.ajaxRequest('/api/Products/5', { method: 'DELETE' });
     assert.equal(delRes.ok, true);
     assert.equal(delRes.status, 204);
-    assert.equal(xhrLog.at(-1).headers['X-API-KEY'], 'ak_xhr_test');
+    assert.equal(xhrLog.at(-1).headers['Authorization'], `Bearer ${xhrJwt}`);
+    assert.equal(xhrLog.at(-1).headers['X-API-KEY'], undefined);
 
     // ajaxRequest 409 Conflict
     nextXhrBehavior = {
@@ -365,7 +384,8 @@ test('ajaxRequest y callbackRequest: inyeccion X-API-KEY, ProblemDetails y 401 i
             try {
                 assert.equal(err, null);
                 assert.equal(data.productId, 99);
-                assert.equal(xhrLog.at(-1).headers['X-API-KEY'], 'ak_xhr_test');
+                assert.equal(xhrLog.at(-1).headers['Authorization'], `Bearer ${xhrJwt}`);
+                assert.equal(xhrLog.at(-1).headers['X-API-KEY'], undefined);
                 resolve();
             } catch (e) {
                 reject(e);
@@ -376,7 +396,7 @@ test('ajaxRequest y callbackRequest: inyeccion X-API-KEY, ProblemDetails y 401 i
     // callbackRequest 401 Unauthorized debe limpiar sessionStorage y redirigir
     nextXhrBehavior = {
         status: 401,
-        responseText: JSON.stringify({ status: 401, title: 'Unauthorized', detail: 'Key invalida' })
+        responseText: JSON.stringify({ status: 401, title: 'Unauthorized', detail: 'Token invalido' })
     };
     await new Promise((resolve, reject) => {
         httpMod.callbackRequest('/api/Products', { method: 'POST', body: { productName: 'Cafe' } }, (err, data) => {
@@ -384,7 +404,7 @@ test('ajaxRequest y callbackRequest: inyeccion X-API-KEY, ProblemDetails y 401 i
                 assert.ok(err instanceof httpMod.ApiError);
                 assert.equal(err.status, 401);
                 assert.equal(data, null);
-                assert.equal(httpMod.getApiKey(), null);
+                assert.equal(httpMod.getAuthToken(), null);
                 assert.equal(globalThis.window.location.href, './login.html?reason=session_expired');
                 resolve();
             } catch (e) {

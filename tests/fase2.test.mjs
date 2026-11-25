@@ -361,15 +361,23 @@ test('Auditoria de Seguridad: Eliminacion total de la llave maestra estatica en 
     scanDir(path.join(ROOT_DIR, 'tests'));
 });
 
-test('TASK-F2-01: authService.login, register, refreshProfile, logout y cero exposicion de roles ni regeneracion', async () => {
+function makeMockJwt(payload = {}, offsetSeconds = 7200) {
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const exp = Math.floor(Date.now() / 1000) + offsetSeconds;
+    const body = Buffer.from(JSON.stringify({ sub: '1', unique_name: 'test', exp, ...payload })).toString('base64url');
+    return `${header}.${body}.mock_sig`;
+}
+
+test('TASK-F2-01: authService.login, register, refreshProfile, logout con JWT y cero exposicion de roles', async () => {
     resetEnvironment('/src/views/login.html');
-    const futureExp = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const futureExp = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    const adminJwt = makeMockJwt({ sub: '1', unique_name: 'admin' });
+    const regJwt = makeMockJwt({ sub: '55', unique_name: 'nuevo_usuario' });
 
     assert.equal(authService.ROLES, undefined);
     assert.equal(authService.resolveUserRole, undefined);
     assert.equal(authService.getUserRole, undefined);
     assert.equal(authService.hasRole, undefined);
-    assert.equal(authService.regenerateApiKey, undefined);
 
     const capturedRequests = [];
     globalThis.fetch = async (url, options) => {
@@ -390,7 +398,8 @@ test('TASK-F2-01: authService.login, register, refreshProfile, logout y cero exp
             body: {
                 userId: 1,
                 username: 'admin',
-                apiKey: 'ak_admin_001',
+                token: adminJwt,
+                tokenType: 'Bearer',
                 expiresAt: futureExp,
                 defaultView: './productos.html',
                 permissions: ADMIN_PERMS
@@ -402,12 +411,16 @@ test('TASK-F2-01: authService.login, register, refreshProfile, logout y cero exp
     assert.equal(capturedRequests[0].url, 'https://localhost:7039/api/auth/login');
     assert.equal(loginSession.username, 'admin');
     assert.equal(loginSession.role, undefined);
+    assert.equal(loginSession.token, adminJwt);
+    assert.equal(loginSession.tokenType, 'Bearer');
     assert.equal(authService.isAuthenticated(), true);
+    assert.equal(authService.getToken(), adminJwt);
     assert.equal(authService.hasPermission('canViewProductsAdmin'), true);
     assert.equal(authService.hasPermission('canPurchaseCatalog'), false);
     assert.equal(authService.getDefaultView(), './productos.html');
 
     const refreshed = await authService.refreshProfile();
+    assert.equal(capturedRequests.at(-1).options.headers['Authorization'], `Bearer ${adminJwt}`);
     assert.equal(refreshed.username, 'admin');
     assert.equal(refreshed.permissions.canDeleteProducts, true);
 
@@ -418,7 +431,8 @@ test('TASK-F2-01: authService.login, register, refreshProfile, logout y cero exp
             body: {
                 userId: 55,
                 username: 'nuevo_usuario',
-                apiKey: 'ak_user_55',
+                token: regJwt,
+                tokenType: 'Bearer',
                 expiresAt: futureExp,
                 defaultView: './catalogo.html',
                 permissions: CLIENT_PERMS
@@ -429,35 +443,37 @@ test('TASK-F2-01: authService.login, register, refreshProfile, logout y cero exp
     const regSession = await authService.register('nuevo_usuario', 'nuevo@correo.com', 'ClaveSegura123');
     assert.equal(capturedRequests.at(-1).url, 'https://localhost:7039/api/auth/register');
     assert.equal(regSession.role, undefined);
+    assert.equal(regSession.token, regJwt);
     assert.equal(authService.hasPermission('canPurchaseCatalog'), true);
     assert.equal(authService.hasPermission('canViewProductsAdmin'), false);
     assert.equal(authService.getDefaultView(), './catalogo.html');
 
     authService.logout();
     assert.equal(authService.isAuthenticated(), false);
-    assert.equal(authService.getApiKey(), null);
+    assert.equal(authService.getToken(), null);
     assert.equal(globalThis.window.location.href, './login.html');
 });
 
-test('TASK-F2-02: Almacenamiento seguro en sessionStorage, purga de localStorage y control de expiracion', async () => {
+test('TASK-F2-02: Almacenamiento seguro en sessionStorage, purga de localStorage y control de expiracion JWT', async () => {
     resetEnvironment('/src/views/login.html');
-    globalThis.localStorage.setItem('northwind_api_key', 'OLD_KEY');
-    globalThis.localStorage.setItem('auth_session', '{"apiKey":"leak"}');
+    globalThis.localStorage.setItem('northwind_jwt_token', 'OLD.JWT.TOKEN');
+    globalThis.localStorage.setItem('auth_session', '{"token":"leak"}');
     globalThis.localStorage.setItem('northwind_api_url', 'http://evil.local/api');
 
     purgeResidualLocalStorage();
-    assert.equal(globalThis.localStorage.getItem('northwind_api_key'), null);
+    assert.equal(globalThis.localStorage.getItem('northwind_jwt_token'), null);
     assert.equal(globalThis.localStorage.getItem('auth_session'), null);
     assert.equal(globalThis.localStorage.getItem('northwind_api_url'), null);
 
-    // Expiración automática
+    // Expiración automática por expiresAt pasado
     const pastExp = new Date(Date.now() - 10_000).toISOString();
     globalThis.fetch = async () => makeResponse({
         status: 200,
         body: {
             userId: 9,
             username: 'expirado',
-            apiKey: 'ak_expired_9',
+            token: makeMockJwt({ sub: '9', unique_name: 'expirado' }, -60),
+            tokenType: 'Bearer',
             expiresAt: pastExp,
             defaultView: './catalogo.html',
             permissions: CLIENT_PERMS
@@ -465,6 +481,24 @@ test('TASK-F2-02: Almacenamiento seguro en sessionStorage, purga de localStorage
     });
 
     await authService.login('expirado', 'Password123!');
+    assert.equal(authService.isAuthenticated(), false);
+    assert.equal(globalThis.sessionStorage.getItem('auth_session'), null);
+
+    // Expiración automática detectada desde claim exp del JWT aunque expiresAt sea futuro
+    const futureExp = new Date(Date.now() + 3600 * 1000).toISOString();
+    globalThis.fetch = async () => makeResponse({
+        status: 200,
+        body: {
+            userId: 10,
+            username: 'jwt_expirado',
+            token: makeMockJwt({ sub: '10', unique_name: 'jwt_expirado' }, -30),
+            tokenType: 'Bearer',
+            expiresAt: futureExp,
+            defaultView: './catalogo.html',
+            permissions: CLIENT_PERMS
+        }
+    });
+    await authService.login('jwt_expirado', 'Password123!');
     assert.equal(authService.isAuthenticated(), false);
     assert.equal(globalThis.sessionStorage.getItem('auth_session'), null);
 });
@@ -478,7 +512,8 @@ test('TASK-F2-03: Integridad de sesion ante manipulacion de permisos en sessionS
         body: {
             userId: 20,
             username: 'usuario_estandar',
-            apiKey: 'ak_std_20',
+            token: makeMockJwt({ sub: '20', unique_name: 'usuario_estandar' }),
+            tokenType: 'Bearer',
             expiresAt: futureExp,
             defaultView: './catalogo.html',
             permissions: CLIENT_PERMS
@@ -514,7 +549,8 @@ test('TASK-F2-04: authGuard protege rutas por capacidad de UI, redirige con 403 
         body: {
             userId: 30,
             username: 'cuenta_basica',
-            apiKey: 'ak_basic_30',
+            token: makeMockJwt({ sub: '30', unique_name: 'cuenta_basica' }),
+            tokenType: 'Bearer',
             expiresAt: futureExp,
             defaultView: './catalogo.html',
             permissions: CLIENT_PERMS
@@ -554,7 +590,7 @@ test('TASK-F2-05: login.html y loginController.js (pestanas, validaciones, redir
     assert.equal(okReg.valid, true);
 });
 
-test('TASK-F2-06: Adaptacion dinamica de interfaz (initNavbar sin badgeRol ni btnPerfilApiKey y permisos en productos)', async () => {
+test('TASK-F2-06: Adaptacion dinamica de interfaz (initNavbar sin badgeRol y permisos en productos)', async () => {
     resetEnvironment('/src/views/catalogo.html');
     const doc = globalThis.document;
     const lblUsuario = doc.registerElement(new MockElement('strong', 'lblUsuario'));
@@ -569,7 +605,6 @@ test('TASK-F2-06: Adaptacion dinamica de interfaz (initNavbar sin badgeRol ni bt
     tableHelpers.initNavbar({ username: 'cliente_ui', defaultView: './catalogo.html', permissions: CLIENT_PERMS }, authService);
     assert.equal(lblUsuario.textContent, 'cliente_ui');
     assert.equal(doc.getElementById('badgeRol'), null);
-    assert.equal(doc.getElementById('btnPerfilApiKey'), null);
     assert.equal(navProductos.hidden, true);
     assert.equal(navClientes.hidden, true);
     assert.equal(navCatalogo.hidden, false);
