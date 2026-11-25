@@ -1,5 +1,5 @@
 import { authService } from "../services/authService.js";
-import { STORAGE_KEYS } from "../api/httpClient.js";
+import { extractProblemMessage } from "../api/httpClient.js";
 import {
     getBruteForceState,
     recordFailedLoginAttempt,
@@ -22,15 +22,12 @@ function clearActiveLockoutInterval() {
     }
 }
 
-export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|https?:\/\/localhost(?::\d+)?)/i;
-const GENERIC_HTTP_REASONS = new Set(['bad request', 'unauthorized', 'forbidden', 'not found']);
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * Determina la ruta de redirección usando la vista inicial autorizada por el backend.
  */
-export function resolveRedirectPath(sessionOrView = null) {
+function resolveRedirectPath(sessionOrView = null) {
     if (typeof sessionOrView === 'string' && sessionOrView.startsWith('./') && sessionOrView.endsWith('.html')) {
         return sessionOrView;
     }
@@ -44,72 +41,10 @@ export function resolveRedirectPath(sessionOrView = null) {
 }
 
 /**
- * Sanitiza un texto de error para garantizar que nunca se expongan trazas técnicas.
- */
-function sanitizeErrorText(text) {
-    if (!text || typeof text !== 'string') return '';
-    const trimmed = text.trim();
-    if (!trimmed || SENSITIVE_ERROR_PATTERN.test(trimmed)) {
-        return '';
-    }
-    return trimmed;
-}
-
-function normalizeNonGenericText(text) {
-    const clean = sanitizeErrorText(text);
-    if (!clean) return '';
-    return GENERIC_HTTP_REASONS.has(clean.toLowerCase()) ? '' : clean;
-}
-
-/**
- * Extrae un mensaje amigable desde ProblemDetails (RFC 7807) o desde un objeto Error.
- */
-export function extractProblemMessage(error, fallback = 'Ocurrió un error al procesar la solicitud.') {
-    if (!error) return fallback;
-
-    const pd = error.problemDetails || error;
-    const status = Number(pd?.status || error?.status) || 0;
-
-    if (status >= 500) {
-        return 'Ocurrió un error interno en el servidor. Intenta nuevamente más tarde.';
-    }
-
-    const rawErrors = pd?.errors || error?.errors || null;
-    if (rawErrors && typeof rawErrors === 'object') {
-        const flatMessages = Object.values(rawErrors)
-            .flat()
-            .map((msg) => sanitizeErrorText(String(msg || '')))
-            .filter(Boolean);
-        if (flatMessages.length > 0) {
-            return flatMessages[0];
-        }
-    }
-
-    const detail = normalizeNonGenericText(pd?.detail || error?.detail);
-    const message = normalizeNonGenericText(pd?.message || error?.message);
-    const title = normalizeNonGenericText(pd?.title || error?.title);
-
-    if (detail) {
-        return detail;
-    }
-    if (message) {
-        return message;
-    }
-    if (status === 401) {
-        return 'Credenciales inválidas. Verifica tu nombre de usuario y contraseña.';
-    }
-    if (status === 400) {
-        return title || 'Solicitud inválida. Revisa los campos marcados en el formulario.';
-    }
-
-    return title || fallback;
-}
-
-/**
  * Identifica qué campos del formulario de registro están en conflicto ante un error HTTP 400 ProblemDetails.
  * Retorna un arreglo con los identificadores lógicos: 'username' | 'email' | 'password'.
  */
-export function detectConflictingFields(error) {
+function detectConflictingFields(error) {
     const conflicts = new Set();
     if (!error) return [];
 
@@ -151,7 +86,7 @@ export function detectConflictingFields(error) {
 /**
  * Valida los campos del formulario de Inicio de Sesión.
  */
-export function validateLoginInput({ username = '', password = '' } = {}) {
+function validateLoginInput({ username = '', password = '' } = {}) {
     const errors = {};
     const cleanUser = String(username ?? '').trim();
     const rawPass = String(password ?? '');
@@ -173,7 +108,7 @@ export function validateLoginInput({ username = '', password = '' } = {}) {
 /**
  * Valida los campos del formulario de Registro Autónomo de Clientes.
  */
-export function validateRegisterInput({ username = '', email = '', password = '' } = {}) {
+function validateRegisterInput({ username = '', email = '', password = '' } = {}) {
     const errors = {};
     const cleanUser = String(username ?? '').trim();
     const cleanEmail = String(email ?? '').trim();
@@ -243,7 +178,7 @@ function hideAlert(alertEl) {
     alertEl.classList.add('d-none');
 }
 
-export async function initLoginController(doc = typeof document !== 'undefined' ? document : null) {
+async function initLoginController(doc = typeof document !== 'undefined' ? document : null) {
     if (!doc) return;
     clearActiveLockoutInterval();
 
@@ -585,7 +520,9 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
             const status = Number(error?.status || error?.problemDetails?.status) || 0;
             const friendlyMsg = extractProblemMessage(
                 error,
-                'No fue posible iniciar sesión. Verifica tus credenciales o la conexión con el servidor.'
+                status === 401
+                    ? 'Credenciales inválidas. Verifica tu nombre de usuario y contraseña.'
+                    : 'No fue posible iniciar sesión. Verifica tus credenciales o la conexión con el servidor.'
             );
             setFieldInvalid(txtLoginUsername, errLoginUsername, friendlyMsg);
             setFieldInvalid(txtLoginPassword, errLoginPassword, friendlyMsg);
@@ -677,12 +614,14 @@ export async function initLoginController(doc = typeof document !== 'undefined' 
                 window.location.href = resolveRedirectPath(regResult);
             }
         } catch (error) {
+            const status = Number(error?.status || error?.problemDetails?.status) || 0;
             const friendlyMsg = extractProblemMessage(
                 error,
-                'No se pudo completar el registro. Verifica los datos ingresados.'
+                status === 400
+                    ? 'Solicitud inválida. Revisa los campos marcados en el formulario.'
+                    : 'No se pudo completar el registro. Verifica los datos ingresados.'
             );
             const conflicts = detectConflictingFields(error);
-            const status = Number(error?.status || error?.problemDetails?.status) || 0;
 
             if (conflicts.includes('username')) {
                 if (txtRegUsername) txtRegUsername.dataset.conflictValue = username.toLowerCase();

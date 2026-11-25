@@ -1,12 +1,12 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
 documento: Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
-version: 2.0.0
+version: 3.0.0
 estado_global: DONE
 ultima_actualizacion: 2026-11-25
 formato_agente: AI-READABLE-TASKS-V1
-referencia_spec: ReqProyectoWEB.md (v2.0.0)
-backend_status: HARDENED_DB_RBAC_V4
+referencia_spec: ReqProyectoWEB.md (v3.0.0)
+backend_status: JWT_BEARER_DB_RBAC_V5
 ---
 
 # Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
@@ -36,7 +36,8 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | **Fase 6** | Compras de clientes e historial propio de pedidos (Backend + Frontend) | 5 | 5 | 0 | 0 | 100% |
 | **Fase 7** | Clientes unificados, gestion de estados de pedidos y cancelacion con stock | 4 | 4 | 0 | 0 | 100% |
 | **Fase 8** | Endurecimiento de seguridad: RBAC exclusivo en BD, cero exposicion en frontend | 4 | 4 | 0 | 0 | 100% |
-| **TOTAL** | **Consolidado del Proyecto** | **39** | **39** | **0** | **0** | **100%** |
+| **Fase 9** | Migracion completa de autenticacion y autorizacion a JWT Bearer (eliminacion total de API Key) | 2 | 2 | 0 | 0 | 100% |
+| **TOTAL** | **Consolidado del Proyecto** | **41** | **41** | **0** | **0** | **100%** |
 
 ---
 
@@ -559,6 +560,32 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 
 ---
 
+### FASE 9: Migracion Completa a JWT Bearer (Eliminacion Total de API Key)
+
+#### [TASK-F9-01] Frontend: Migracion a `Authorization: Bearer <token>` y Almacenamiento JWT en `sessionStorage`
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `src/api/config.js`, `src/api/httpClient.js`, `src/services/authService.js`, `src/controllers/productsController.js`
+* **Requisitos:** `REQ-AUTH-001`, `REQ-AUTH-002`, `REQ-SEC-001`, `REQ-SEC-005`
+* **Descripcion:** Eliminar toda logica de API Key (`X-API-KEY`, `northwind_api_key`, `getApiKey`, `setApiConfig`, `clearApiConfig`) y migrar todas las peticiones HTTP, manejo de sesion firmada y validacion de expiracion al estandar JWT Bearer.
+* **Criterios de Aceptacion:**
+  * - [x] `STORAGE_KEYS.AUTH_TOKEN` (`northwind_jwt_token`) reemplaza `API_KEY` en `config.js`.
+  * - [x] `httpClient.js` inyecta exclusivamente `Authorization: Bearer <token>` en los 4 transportes (`httpClient`, `ajaxRequest`, `promiseRequest`, `callbackRequest`).
+  * - [x] `authService.js` persiste `{ userId, username, token, tokenType, expiresAt, authenticatedAt, defaultView, permissions, signature }` en `sessionStorage`, valida `exp` del JWT y `expiresAt`, y expone `getToken()`.
+  * - [x] `productsController.js` valida `data-auth-blocked`, `isAuthenticated()` y `hasPermission('canViewProductsAdmin')` en `DOMContentLoaded`.
+
+#### [TASK-F9-02] Pruebas Automatizadas y Documentacion JWT-Only
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `tests/*.test.mjs`, `SPECS/ReqProyectoWEB.md`, `SPECS/TASKS.md`, `src/README.md`
+* **Requisitos:** `ALL`
+* **Descripcion:** Actualizar toda la suite de pruebas y documentacion para validar autenticacion exclusivamente JWT y verificar ausencia total de logica API Key.
+* **Criterios de Aceptacion:**
+  * - [x] Todas las suites `tests/*.test.mjs` verifican `Authorization: Bearer <token>`, cero `X-API-KEY` y cero `apiKey`.
+  * - [x] `tests/fase8.test.mjs` apunta a `../APIKey_ProyectoWEB_II/APIkey` y audita la eliminacion total de API Key en frontend y backend.
+
+---
+
 ## 5. Historial de Modificaciones del Plan de Tareas
 
 | Fecha | Agente / Autor | Version | Accion Realizada |
@@ -571,3 +598,4 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | 2026-11-24 | Antigravity | 1.6.0 | Completada y verificada al 100% la Fase 6 (`TASK-F6-01` a `TASK-F6-05`, 31/31 tareas): vinculacion de ordenes en MySQL (`orders.UserID` y columnas de envio ampliadas mediante migracion EF Core `AddOrderUserIdAndWidenShipFields`), `POST /api/orders` transaccional y `GET /api/orders/mine` con `Items` y `Total` en `OrdersController.cs`, integracion en `orderModel.js`, `orderService.js`, `catalogController.js` y `ordersController.js` (`pedidos.html` / `ordenes.html`), 32/32 pruebas unitarias pasando y verificacion E2E en vivo exitosa. |
 | 2026-11-24 | Antigravity | 1.7.0 | Completada y verificada al 100% la Fase 7 (`TASK-F7-01` a `TASK-F7-04`, 35/35 tareas): directorio unificado de clientes en `CustomersController.cs` (Northwind + usuarios `CLIENTE` con clave dinamica determinista), migracion EF Core `AddOrderStatus` (`orders.Status`) y endpoint `PATCH /api/orders/{id}/status` en `OrdersController.cs` con reintegro atomico de stock y estado `CANCELADO` irreversible, controles RBAC y confirmaciones en `orderModel.js`, `orderService.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`, `dotnet build` limpio y 38/38 pruebas pasando (`tests/fase1.test.mjs` a `tests/fase7.test.mjs`). |
 | 2026-11-25 | Antigravity | 2.0.0 | Completada y verificada al 100% la Fase 8 (`TASK-F8-01` a `TASK-F8-04`, 39/39 tareas): tabla `roles` y FK `users.RoleId` con migracion `AddRolesAndSeedUsers` sembrando `admin`, `Robe` y `Leo` (PBKDF2-SHA256); eliminacion de `ResolveUserRole`, whitelists y `POST /api/apikeys/regenerate` en backend; autorizacion estricta en BD (`[ApiKey]` + `[RequireRoles]`) y `GET /api/auth/me` con banderas de UI; cero exposicion de roles, sin campo de URL editable, sin regeneracion de API Key y sin rutas `/api/...` visibles en frontend. |
+| 2026-11-25 | Antigravity | 3.0.0 | Completada la Fase 9 (`TASK-F9-01` a `TASK-F9-02`, 41/41 tareas): migracion total del frontend a autenticacion JWT Bearer (`Authorization: Bearer <token>`, `northwind_jwt_token` en `sessionStorage`, validacion de `exp` JWT, eliminacion total de `X-API-KEY`/`apiKey`), fix de `DOMContentLoaded` en `productsController.js`, y actualizacion integral de `tests/*.test.mjs` y `SPECS/`. |

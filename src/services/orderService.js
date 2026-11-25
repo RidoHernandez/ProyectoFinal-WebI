@@ -1,27 +1,5 @@
-import { httpClient, ApiError, normalizeProblemDetails, ORDERS, ORDERS_MINE } from "../api/httpClient.js";
+import { httpClient, ApiError, normalizeProblemDetails, safeParseJson, throwApiError, ORDERS, ORDERS_MINE } from "../api/httpClient.js";
 import { OrderModel, validateOrderId, validateCreateOrderPayload, normalizeOrderStatusCode } from "../models/orderModel.js";
-
-async function safeParseJson(response) {
-    if (!response || response.status === 204) return null;
-    try {
-        if (typeof response.json === 'function') {
-            return await response.json();
-        }
-        if (typeof response.text === 'function') {
-            const text = await response.text();
-            return text ? JSON.parse(text) : null;
-        }
-    } catch {
-        return null;
-    }
-    return null;
-}
-
-function throwApiError(response, fallbackStatus = 500) {
-    const problemDetails = response?.problemDetails
-        || normalizeProblemDetails(null, response?.status || fallbackStatus);
-    throw new ApiError(problemDetails);
-}
 
 export const orderService = Object.freeze({
     async getAll() {

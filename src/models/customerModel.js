@@ -1,4 +1,4 @@
-export const CUSTOMER_ID_PATTERN = /^[A-Za-z0-9]{1,5}$/;
+const CUSTOMER_ID_PATTERN = /^[A-Za-z0-9]{1,5}$/;
 
 export function validateCustomerId(id) {
     const clean = String(id ?? '').trim();

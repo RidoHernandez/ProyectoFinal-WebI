@@ -1,13 +1,12 @@
 import {
     httpClient,
-    ApiError,
-    normalizeProblemDetails,
-    PRODUCTS,
-    callbackRequest
+    safeParseJson,
+    throwApiError,
+    PRODUCTS
 } from "../api/httpClient.js";
 import { ProductModel } from "../models/productModel.js";
 
-export const DISCONTINUED_STORAGE_KEY = 'northwind_discontinued_products';
+const DISCONTINUED_STORAGE_KEY = 'northwind_discontinued_products';
 
 const discontinuedMemorySet = new Set();
 
@@ -55,7 +54,7 @@ function saveDiscontinuedSet(set) {
     }
 }
 
-export function markProductDiscontinued(id, isDiscontinued = true) {
+function markProductDiscontinued(id, isDiscontinued = true) {
     const numId = Number(id);
     if (!Number.isFinite(numId) || numId <= 0) return;
     const set = getDiscontinuedSet();
@@ -67,13 +66,13 @@ export function markProductDiscontinued(id, isDiscontinued = true) {
     saveDiscontinuedSet(set);
 }
 
-export function isProductDiscontinued(id) {
+function isProductDiscontinued(id) {
     const numId = Number(id);
     if (!Number.isFinite(numId) || numId <= 0) return false;
     return getDiscontinuedSet().has(numId);
 }
 
-export function clearDiscontinuedProductsCache() {
+function clearDiscontinuedProductsCache() {
     discontinuedMemorySet.clear();
     try {
         if (typeof sessionStorage !== 'undefined') {
@@ -84,64 +83,6 @@ export function clearDiscontinuedProductsCache() {
     }
 }
 
-async function safeParseJson(response) {
-    if (!response || response.status === 204) return null;
-    try {
-        if (typeof response.json === 'function') {
-            return await response.json();
-        }
-        if (typeof response.text === 'function') {
-            const text = await response.text();
-            return text ? JSON.parse(text) : null;
-        }
-    } catch {
-        return null;
-    }
-    return null;
-}
-
-function buildApiError(response, fallbackStatus = 500) {
-    const pd = response?.problemDetails || normalizeProblemDetails(null, response?.status || fallbackStatus);
-    return new ApiError(pd);
-}
-
-function attachResponseMetadata(dto, status = 200) {
-    if (!dto || typeof dto !== 'object') return dto;
-    Object.defineProperties(dto, {
-        ok: {
-            value: true,
-            enumerable: false,
-            configurable: true,
-            writable: true
-        },
-        status: {
-            value: status,
-            enumerable: false,
-            configurable: true,
-            writable: true
-        },
-        data: {
-            value: dto,
-            enumerable: false,
-            configurable: true,
-            writable: true
-        },
-        json: {
-            value: async () => dto,
-            enumerable: false,
-            configurable: true,
-            writable: true
-        },
-        text: {
-            value: async () => JSON.stringify(dto),
-            enumerable: false,
-            configurable: true,
-            writable: true
-        }
-    });
-    return dto;
-}
-
 export const productService = {
     lastTotalProducts: 0,
 
@@ -149,7 +90,7 @@ export const productService = {
     getAll: async () => {
         const response = await httpClient(PRODUCTS, { method: 'GET' });
         if (!response.ok) {
-            throw buildApiError(response, response.status || 500);
+            throwApiError(response, response.status || 500);
         }
 
         const data = await safeParseJson(response);
@@ -192,7 +133,7 @@ export const productService = {
     getById: async (id) => {
         const response = await httpClient(`${PRODUCTS}/${encodeURIComponent(id)}`, { method: 'GET' });
         if (!response.ok) {
-            throw buildApiError(response, response.status || 404);
+            throwApiError(response, response.status || 404);
         }
 
         const data = await safeParseJson(response);
@@ -211,7 +152,7 @@ export const productService = {
         });
 
         if (!response.ok) {
-            throw buildApiError(response, response.status || 400);
+            throwApiError(response, response.status || 400);
         }
 
         const createdRaw = await safeParseJson(response);
@@ -231,7 +172,7 @@ export const productService = {
             dto.discontinued = true;
         }
 
-        return attachResponseMetadata(dto, response.status || 201);
+        return dto;
     },
 
     // [TASK-F3-01] update(id, data): envia PUT /api/Products/{id} con ProductUpsertDto
@@ -243,7 +184,7 @@ export const productService = {
         });
 
         if (!response.ok) {
-            throw buildApiError(response, response.status || 400);
+            throwApiError(response, response.status || 400);
         }
 
         markProductDiscontinued(id, Boolean(payload.discontinued));
@@ -278,7 +219,7 @@ export const productService = {
         });
 
         if (!response.ok) {
-            throw buildApiError(response, response.status || 409);
+            throwApiError(response, response.status || 409);
         }
 
         markProductDiscontinued(id, false);
@@ -326,97 +267,5 @@ export const productService = {
     // Helpers de estado de descontinuación
     markDiscontinued: markProductDiscontinued,
     isDiscontinued: isProductDiscontinued,
-    clearDiscontinuedCache: clearDiscontinuedProductsCache,
-
-    // Alias retrocompatibles con controladores existentes
-    getProducts: async () => productService.getAll(),
-
-    createProduct: async (productPayload, optionalCallback = null) => {
-        if (typeof optionalCallback === 'function') {
-            return productService.createProductWithCallback(productPayload, optionalCallback);
-        }
-        return await productService.create(productPayload);
-    },
-
-    createProductWithCallback: (productPayload, callback) => {
-        const payload = ProductModel.createPayload(productPayload);
-        if (typeof XMLHttpRequest !== 'undefined') {
-            callbackRequest(PRODUCTS, {
-                method: 'POST',
-                body: payload
-            }, callback);
-            return;
-        }
-        productService.create(payload)
-            .then((result) => callback(null, result))
-            .catch((err) => callback(err, null));
-    },
-
-    updateProduct: async (id, productPayload) => productService.update(id, productPayload),
-
-    deleteProduct: async (id) => productService.delete(id),
-
-    getPagedProducts: async ({ page = 1, pageSize = 12, filter = '' } = {}) => {
-        const cleanFilter = (filter || '').trim();
-        const queryParams = new URLSearchParams({
-            page: String(page),
-            pageSize: String(pageSize),
-            filter: cleanFilter
-        });
-
-        try {
-            const response = await httpClient(`${PRODUCTS}/paged?${queryParams.toString()}`, { method: 'GET' });
-
-            if (response.ok) {
-                const result = await safeParseJson(response);
-                const discontinuedSet = getDiscontinuedSet();
-                const items = Array.isArray(result?.products)
-                    ? result.products.map((p) => ProductModel.fromApiDto(p, discontinuedSet))
-                    : [];
-                return {
-                    page: result?.page || page,
-                    pageSize: result?.pageSize || pageSize,
-                    totalRecords: result?.totalRecords ?? items.length,
-                    totalPages: result?.totalPages ?? 1,
-                    hasNextPage: result?.hasNextPage ?? false,
-                    products: items
-                };
-            }
-
-            if (response.status === 404) {
-                return await productService._getPagedProductsFallback(page, pageSize, cleanFilter);
-            }
-
-            throw buildApiError(response, response.status || 500);
-        } catch {
-            return await productService._getPagedProductsFallback(page, pageSize, cleanFilter);
-        }
-    },
-
-    _getPagedProductsFallback: async (page, pageSize, filter) => {
-        const allProducts = await productService.getAll();
-
-        let filtered = allProducts;
-        if (filter) {
-            const f = filter.toLowerCase();
-            filtered = allProducts.filter((p) =>
-                (p.productName && p.productName.toLowerCase().includes(f)) ||
-                (p.productId && String(p.productId) === f)
-            );
-        }
-
-        const totalRecords = filtered.length;
-        const totalPages = Math.ceil(totalRecords / pageSize) || 1;
-        const offset = (page - 1) * pageSize;
-        const pageItems = filtered.slice(offset, offset + pageSize);
-
-        return {
-            page,
-            pageSize,
-            totalRecords,
-            totalPages,
-            hasNextPage: page < totalPages,
-            products: pageItems
-        };
-    }
+    clearDiscontinuedCache: clearDiscontinuedProductsCache
 };

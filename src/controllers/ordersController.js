@@ -18,6 +18,7 @@ import {
     initNavbar,
     resolveConnectedPermissions,
     clearTbody,
+    getDoc,
     setElementVisibility,
     extractProblemMessage,
     showModal,
@@ -40,11 +41,6 @@ let permisosActuales = {
 let usuarioActual = null;
 let tabla = null;
 let currentModalOrderId = null;
-
-function getDoc(customDoc = null) {
-    if (customDoc) return customDoc;
-    return typeof document !== 'undefined' ? document : null;
-}
 
 function askConfirmation(message) {
     if (typeof globalThis !== 'undefined' && typeof globalThis.confirm === 'function') {
@@ -295,7 +291,7 @@ function populateDetailModal(doc, order, referenceDate = new Date()) {
     return status;
 }
 
-export function resetOrdersState() {
+function resetOrdersState() {
     allOrdersCache = [];
     visibleOrdersCache = [];
     consultedOrderIds.clear();
@@ -311,20 +307,8 @@ export function resetOrdersState() {
     currentModalOrderId = null;
 }
 
-export function getAllOrdersCache() {
-    return allOrdersCache;
-}
-
-export function getVisibleOrdersCache() {
-    return visibleOrdersCache;
-}
-
-export function getConsultedOrderIds() {
-    return new Set(consultedOrderIds);
-}
-
 // Determina si una orden pertenece a la cuenta del cliente conectado
-export function isOrderOwnedByClient(order, usuario) {
+function isOrderOwnedByClient(order, usuario) {
     if (!order || typeof order !== 'object' || !usuario || typeof usuario !== 'object') {
         return false;
     }
@@ -350,7 +334,7 @@ export function isOrderOwnedByClient(order, usuario) {
 }
 
 // Filtra las órdenes según los permisos autorizados por el backend
-export function filtrarOrdenesPorPermisos(orders = [], usuario = usuarioActual, consultedIds = consultedOrderIds) {
+function filtrarOrdenesPorPermisos(orders = [], usuario = usuarioActual, consultedIds = consultedOrderIds) {
     if (!Array.isArray(orders)) return [];
 
     const perms = resolveConnectedPermissions(usuario, authService);
@@ -370,7 +354,7 @@ export function filtrarOrdenesPorPermisos(orders = [], usuario = usuarioActual, 
 }
 
 // Filtro puro por estatus logístico (ALL | PENDIENTE | PENDIENTE_ENVIO | EN_TRANSITO | ENTREGADO | CANCELADO)
-export function filtrarOrdenesPorEstado(orders = [], statusCode = 'ALL', referenceDate = new Date()) {
+function filtrarOrdenesPorEstado(orders = [], statusCode = 'ALL', referenceDate = new Date()) {
     if (!Array.isArray(orders)) return [];
     const normalized = String(statusCode || 'ALL').trim().toUpperCase();
     if (!normalized || normalized === 'ALL') {
@@ -422,7 +406,7 @@ function buildAdminStatusSelectHtml(orderId, status) {
 }
 
 // Renderiza la tabla sin DataTables usando únicamente createElement y textContent (anti-XSS)
-export function renderizarTablaOrdenesFallback(
+function renderizarTablaOrdenesFallback(
     lista = visibleOrdersCache,
     customDoc = null,
     referenceDate = new Date()
@@ -527,7 +511,7 @@ export function renderizarTablaOrdenesFallback(
     }
 }
 
-export function aplicarFiltrosOrdenes(customDoc = null, referenceDate = new Date()) {
+function aplicarFiltrosOrdenes(customDoc = null, referenceDate = new Date()) {
     const doc = getDoc(customDoc);
     const selEstado = doc?.getElementById('selEstadoOrden');
     const selectedStatus = selEstado?.value || 'ALL';
@@ -627,7 +611,7 @@ function upsertOrderInCache(updatedOrder) {
     }
 }
 
-export async function cambiarEstadoOrden(orderId, targetStatus, customDoc = null, sourceSelect = null) {
+async function cambiarEstadoOrden(orderId, targetStatus, customDoc = null, sourceSelect = null) {
     const doc = getDoc(customDoc);
     showOrdersAlert(doc, '', false);
     showOrdersSuccess(doc, '', false);
@@ -717,7 +701,7 @@ export async function cambiarEstadoOrden(orderId, targetStatus, customDoc = null
     }
 }
 
-export async function cancelarPedidoCliente(orderId, customDoc = null) {
+async function cancelarPedidoCliente(orderId, customDoc = null) {
     const doc = getDoc(customDoc);
     showOrdersAlert(doc, '', false);
     showOrdersSuccess(doc, '', false);
@@ -794,7 +778,7 @@ export async function cancelarPedidoCliente(orderId, customDoc = null) {
     }
 }
 
-export async function listarOrdenes(customDoc = null) {
+async function listarOrdenes(customDoc = null) {
     const doc = getDoc(customDoc);
     showOrdersAlert(doc, '', false);
     showOrdersSuccess(doc, '', false);
@@ -834,7 +818,7 @@ export async function listarOrdenes(customDoc = null) {
     }
 }
 
-export async function verDetalleOrden(orderId, customDoc = null, preloadedOrder = null) {
+async function verDetalleOrden(orderId, customDoc = null, preloadedOrder = null) {
     const doc = getDoc(customDoc);
     const validation = validateOrderId(orderId);
 
@@ -883,7 +867,7 @@ export async function verDetalleOrden(orderId, customDoc = null, preloadedOrder 
     }
 }
 
-export async function buscarOrdenPorId(rawId, customDoc = null) {
+async function buscarOrdenPorId(rawId, customDoc = null) {
     const doc = getDoc(customDoc);
     const validation = validateOrderId(rawId);
 
@@ -1029,7 +1013,7 @@ function configurarEventos(doc) {
     }
 }
 
-export async function initOrdersController(customDoc = null) {
+async function initOrdersController(customDoc = null) {
     const doc = getDoc(customDoc);
     if (!doc) return;
 

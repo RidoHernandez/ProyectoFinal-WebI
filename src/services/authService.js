@@ -1,27 +1,16 @@
 import {
     httpClient,
     ApiError,
-    getApiKey as httpGetApiKey,
-    setApiConfig,
-    clearApiConfig,
+    getAuthToken as httpGetAuthToken,
+    setAuthToken,
+    clearAuthToken,
     ENDPOINTS,
-    STORAGE_KEYS
+    STORAGE_KEYS,
+    SENSITIVE_LOCAL_KEYS
 } from "../api/httpClient.js";
 
-const SESSION_INTEGRITY_SALT = 'NW_DB_SESSION_INTEGRITY_SALT_2026_V3';
-const SENSITIVE_LOCAL_KEYS = Object.freeze([
-    STORAGE_KEYS.API_KEY,
-    STORAGE_KEYS.AUTH_SESSION,
-    STORAGE_KEYS.AUTH_FLASH_ERROR,
-    'northwind_api_url',
-    'api_key',
-    'apiKey',
-    'auth_token',
-    'token',
-    'user',
-    'session',
-    'password'
-]);
+const SESSION_INTEGRITY_SALT = 'NW_JWT_SESSION_INTEGRITY_SALT_2026_V4';
+const DEFAULT_TOKEN_TTL_MS = 120 * 60 * 1000;
 
 const ALLOWED_VIEWS = new Set([
     './productos.html',
@@ -31,7 +20,7 @@ const ALLOWED_VIEWS = new Set([
     './ordenes.html'
 ]);
 
-export const PERMISSION_KEYS = Object.freeze([
+const PERMISSION_KEYS = Object.freeze([
     'canViewProductsAdmin',
     'canCreateProducts',
     'canEditProductDetails',
@@ -45,7 +34,7 @@ export const PERMISSION_KEYS = Object.freeze([
     'canPurchaseCatalog'
 ]);
 
-export function createEmptyPermissions() {
+function createEmptyPermissions() {
     const perms = {};
     for (const key of PERMISSION_KEYS) {
         perms[key] = false;
@@ -53,7 +42,7 @@ export function createEmptyPermissions() {
     return perms;
 }
 
-export function normalizePermissions(raw = null) {
+function normalizePermissions(raw = null) {
     const result = createEmptyPermissions();
     if (!raw || typeof raw !== 'object') {
         return result;
@@ -67,9 +56,36 @@ export function normalizePermissions(raw = null) {
     return result;
 }
 
-export function normalizeDefaultView(rawView) {
+function normalizeDefaultView(rawView) {
     const clean = typeof rawView === 'string' ? rawView.trim() : '';
     return ALLOWED_VIEWS.has(clean) ? clean : './catalogo.html';
+}
+
+function extractJwtExpirationMs(token) {
+    if (!token || typeof token !== 'string') return null;
+    const parts = token.trim().split('.');
+    if (parts.length !== 3) return null;
+
+    try {
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+        let decoded = '';
+        if (typeof atob === 'function') {
+            decoded = atob(padded);
+        } else if (typeof Buffer !== 'undefined') {
+            decoded = Buffer.from(padded, 'base64').toString('utf8');
+        } else {
+            return null;
+        }
+        const payload = JSON.parse(decoded);
+        if (payload && typeof payload.exp === 'number' && Number.isFinite(payload.exp)) {
+            return payload.exp * 1000;
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
 }
 
 let inMemorySession = null;
@@ -86,7 +102,7 @@ export function purgeResidualLocalStorage() {
     }
 }
 
-export function computeSessionSignature(sessionData) {
+function computeSessionSignature(sessionData) {
     if (!sessionData || typeof sessionData !== 'object') {
         return '';
     }
@@ -97,7 +113,8 @@ export function computeSessionSignature(sessionData) {
     const payload = [
         String(sessionData.userId ?? ''),
         String(sessionData.username ?? '').trim(),
-        String(sessionData.apiKey ?? '').trim(),
+        String(sessionData.token ?? '').trim(),
+        String(sessionData.tokenType ?? 'Bearer').trim(),
         String(sessionData.expiresAt ?? '').trim(),
         String(sessionData.authenticatedAt ?? ''),
         normalizeDefaultView(sessionData.defaultView),
@@ -121,16 +138,17 @@ export function computeSessionSignature(sessionData) {
     return `sig_${hex1}${hex2}`;
 }
 
-export function verifySessionIntegrity(sessionData) {
+function verifySessionIntegrity(sessionData) {
     if (!sessionData || typeof sessionData !== 'object') {
         return false;
     }
 
-    const { userId, username, apiKey, expiresAt, authenticatedAt, signature } = sessionData;
+    const { userId, username, token, tokenType, expiresAt, authenticatedAt, signature } = sessionData;
 
     if (userId === undefined || userId === null) return false;
     if (!username || typeof username !== 'string' || username.trim() === '') return false;
-    if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') return false;
+    if (!token || typeof token !== 'string' || token.trim() === '') return false;
+    if (!tokenType || typeof tokenType !== 'string' || tokenType.trim() !== 'Bearer') return false;
     if (!expiresAt || typeof expiresAt !== 'string' || Number.isNaN(Date.parse(expiresAt))) return false;
     if (typeof authenticatedAt !== 'number' || !Number.isFinite(authenticatedAt)) return false;
     if (!signature || typeof signature !== 'string') return false;
@@ -139,13 +157,25 @@ export function verifySessionIntegrity(sessionData) {
     return signature === expectedSignature;
 }
 
-function saveSignedSession({ userId, username, apiKey, expiresAt, authenticatedAt, defaultView, permissions }) {
+function resolveExpiresAtIso(rawExpiresAt, token) {
+    if (rawExpiresAt && typeof rawExpiresAt === 'string' && !Number.isNaN(Date.parse(rawExpiresAt))) {
+        return rawExpiresAt;
+    }
+    const jwtExpMs = extractJwtExpirationMs(token);
+    if (jwtExpMs !== null) {
+        return new Date(jwtExpMs).toISOString();
+    }
+    return new Date(Date.now() + DEFAULT_TOKEN_TTL_MS).toISOString();
+}
+
+function saveSignedSession({ userId, username, token, tokenType = 'Bearer', expiresAt, authenticatedAt, defaultView, permissions }) {
     purgeResidualLocalStorage();
 
     const cleanUsername = String(username).trim();
-    const cleanApiKey = String(apiKey).trim();
+    const cleanToken = String(token).trim();
+    const cleanTokenType = String(tokenType || 'Bearer').trim() || 'Bearer';
     const normalizedUserId = userId ?? 0;
-    const normalizedExpiresAt = expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const normalizedExpiresAt = resolveExpiresAtIso(expiresAt, cleanToken);
     const normalizedAuthAt = typeof authenticatedAt === 'number' && Number.isFinite(authenticatedAt)
         ? authenticatedAt
         : Date.now();
@@ -155,7 +185,8 @@ function saveSignedSession({ userId, username, apiKey, expiresAt, authenticatedA
     const sessionBase = {
         userId: normalizedUserId,
         username: cleanUsername,
-        apiKey: cleanApiKey,
+        token: cleanToken,
+        tokenType: cleanTokenType,
         expiresAt: normalizedExpiresAt,
         authenticatedAt: normalizedAuthAt,
         defaultView: normalizedView,
@@ -168,12 +199,12 @@ function saveSignedSession({ userId, username, apiKey, expiresAt, authenticatedA
         signature
     };
 
-    setApiConfig(cleanApiKey);
+    setAuthToken(cleanToken);
 
     try {
         if (typeof sessionStorage !== 'undefined') {
             sessionStorage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify(fullSession));
-            sessionStorage.setItem(STORAGE_KEYS.API_KEY, cleanApiKey);
+            sessionStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, cleanToken);
         }
     } catch {
         // Ignore storage errors
@@ -190,6 +221,7 @@ export const authService = {
     PERMISSION_KEYS,
     createEmptyPermissions,
     normalizePermissions,
+    extractJwtExpirationMs,
     computeSessionSignature,
     verifySessionIntegrity,
     purgeResidualLocalStorage,
@@ -224,17 +256,23 @@ export const authService = {
             return false;
         }
 
+        const now = Date.now();
         const expiresTimestamp = Date.parse(parsed.expiresAt);
-        if (Number.isNaN(expiresTimestamp) || Date.now() >= expiresTimestamp) {
+        const jwtExpMs = extractJwtExpirationMs(parsed.token);
+        if (
+            Number.isNaN(expiresTimestamp) ||
+            now >= expiresTimestamp ||
+            (jwtExpMs !== null && now >= jwtExpMs)
+        ) {
             this.logout();
             return false;
         }
 
         try {
             if (typeof sessionStorage !== 'undefined') {
-                const syncedKey = sessionStorage.getItem(STORAGE_KEYS.API_KEY);
-                if (syncedKey !== parsed.apiKey) {
-                    sessionStorage.setItem(STORAGE_KEYS.API_KEY, parsed.apiKey);
+                const syncedToken = sessionStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+                if (syncedToken !== parsed.token) {
+                    sessionStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, parsed.token);
                 }
             }
         } catch {
@@ -256,7 +294,8 @@ export const authService = {
         const user = {
             userId: inMemorySession.userId,
             username: inMemorySession.username,
-            apiKey: inMemorySession.apiKey,
+            token: inMemorySession.token,
+            tokenType: inMemorySession.tokenType || 'Bearer',
             expiresAt: inMemorySession.expiresAt,
             authenticatedAt: inMemorySession.authenticatedAt,
             defaultView,
@@ -302,12 +341,12 @@ export const authService = {
         return normalizeDefaultView(user?.defaultView);
     },
 
-    getApiKey() {
+    getToken() {
         const user = this.getCurrentUser();
-        if (user && user.apiKey) {
-            return user.apiKey;
+        if (user && user.token) {
+            return user.token;
         }
-        return httpGetApiKey();
+        return httpGetAuthToken();
     },
 
     async checkSession() {
@@ -321,7 +360,8 @@ export const authService = {
             userId: user.userId,
             username: user.username,
             nombre: user.username,
-            apiKey: user.apiKey,
+            token: user.token,
+            tokenType: user.tokenType,
             expiresAt: user.expiresAt,
             authenticatedAt: user.authenticatedAt,
             defaultView: user.defaultView,
@@ -356,7 +396,8 @@ export const authService = {
             saveSignedSession({
                 userId: updatedUserId,
                 username: updatedUsername,
-                apiKey: current.apiKey,
+                token: current.token,
+                tokenType: current.tokenType || 'Bearer',
                 expiresAt: current.expiresAt,
                 authenticatedAt: current.authenticatedAt,
                 defaultView: updatedView,
@@ -404,19 +445,21 @@ export const authService = {
         const data = await response.json();
         const userId = data?.userId ?? data?.UserId ?? 0;
         const resolvedUsername = String(data?.username ?? data?.Username ?? cleanUsername).trim();
-        const apiKey = String(data?.apiKey ?? data?.ApiKey ?? '').trim();
-        const expiresAt = data?.expiresAt ?? data?.ExpiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const token = String(data?.token ?? data?.Token ?? '').trim();
+        const tokenType = String(data?.tokenType ?? data?.TokenType ?? 'Bearer').trim() || 'Bearer';
+        const expiresAt = resolveExpiresAtIso(data?.expiresAt ?? data?.ExpiresAt, token);
         const defaultView = normalizeDefaultView(data?.defaultView ?? data?.DefaultView);
         const permissions = normalizePermissions(data?.permissions ?? data?.Permissions);
 
-        if (!apiKey) {
-            throw new Error('El servidor no devolvió una credencial válida.');
+        if (!token) {
+            throw new Error('El servidor no devolvió un token de autenticación válido.');
         }
 
         return saveSignedSession({
             userId,
             username: resolvedUsername,
-            apiKey,
+            token,
+            tokenType,
             expiresAt,
             authenticatedAt: Date.now(),
             defaultView,
@@ -465,8 +508,9 @@ export const authService = {
         const data = await response.json();
         const userId = data?.userId ?? data?.UserId ?? 0;
         const resolvedUsername = String(data?.username ?? data?.Username ?? cleanUsername).trim();
-        const apiKey = String(data?.apiKey ?? data?.ApiKey ?? '').trim();
-        const expiresAt = data?.expiresAt ?? data?.ExpiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const token = String(data?.token ?? data?.Token ?? '').trim();
+        const tokenType = String(data?.tokenType ?? data?.TokenType ?? 'Bearer').trim() || 'Bearer';
+        const expiresAt = resolveExpiresAtIso(data?.expiresAt ?? data?.ExpiresAt, token);
         const defaultView = normalizeDefaultView(data?.defaultView ?? data?.DefaultView ?? './catalogo.html');
         const permissions = normalizePermissions(
             data?.permissions ?? data?.Permissions ?? {
@@ -475,14 +519,15 @@ export const authService = {
             }
         );
 
-        if (!apiKey) {
-            throw new Error('El servidor no devolvió una credencial válida tras el registro.');
+        if (!token) {
+            throw new Error('El servidor no devolvió un token de autenticación válido tras el registro.');
         }
 
         return saveSignedSession({
             userId,
             username: resolvedUsername,
-            apiKey,
+            token,
+            tokenType,
             expiresAt,
             authenticatedAt: Date.now(),
             defaultView,
@@ -496,7 +541,7 @@ export const authService = {
 
     logout(reason = null) {
         inMemorySession = null;
-        clearApiConfig();
+        clearAuthToken();
         purgeResidualLocalStorage();
 
         try {
@@ -516,5 +561,3 @@ export const authService = {
         }
     }
 };
-
-export default authService;
