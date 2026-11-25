@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://localhost:7039/api';
+const API_BASE_URL = 'https://api-nwind-ghbbh4bqh8ecabb7.westus3-01.azurewebsites.net/api';
 
 export const STORAGE_KEYS = Object.freeze({
     AUTH_TOKEN: 'northwind_jwt_token',
