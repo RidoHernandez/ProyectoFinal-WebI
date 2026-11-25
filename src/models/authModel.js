@@ -321,6 +321,15 @@ export const authModel = {
     }
 };
 
+function navigateReplace(url) {
+    if (typeof window === 'undefined' || !window.location) return;
+    if (typeof window.location.replace === 'function') {
+        window.location.replace(url);
+    } else {
+        window.location.href = url;
+    }
+}
+
 // Guardia de navegación síncrona para vistas protegidas
 export function authGuard(requiredPermissions = null) {
     purgeResidualLocalStorage();
@@ -335,9 +344,7 @@ export function authGuard(requiredPermissions = null) {
             // Ignore DOM errors in non-browser environments
         }
 
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './login.html';
-        }
+        navigateReplace('./login.html');
         return false;
     }
 
@@ -365,9 +372,7 @@ export function authGuard(requiredPermissions = null) {
             // Ignore DOM errors in non-browser environments
         }
 
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './catalogo.html?error=403';
-        }
+        navigateReplace('./catalogo.html?error=403');
 
         return false;
     }

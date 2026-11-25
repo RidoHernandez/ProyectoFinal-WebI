@@ -345,7 +345,16 @@ function initNavbar(usuario, authModel) {
     renderFlashErrorBanner();
 }
 
-// Arranque común de vistas autenticadas: refresca perfil, verifica permisos, inicializa navbar y banner 403
+function navigateReplace(url) {
+    if (typeof window === 'undefined' || !window.location) return;
+    if (typeof window.location.replace === 'function') {
+        window.location.replace(url);
+    } else {
+        window.location.href = url;
+    }
+}
+
+// Arranque común de vistas autenticadas: inicializa navbar inmediato, revela vista y refresca perfil en segundo plano
 export async function initAuthenticatedView({ authModel, requiredPermission = null } = {}) {
     if (typeof document === 'undefined' || !authModel) return null;
 
@@ -356,25 +365,40 @@ export async function initAuthenticatedView({ authModel, requiredPermission = nu
         return null;
     }
 
+    const cachedUser = authModel.getCurrentUser();
+    if (cachedUser) {
+        initNavbar(cachedUser, authModel);
+        if (document.body) {
+            setElementVisibility(document.body, true);
+        }
+    }
+
     const usuario = (await authModel.refreshProfile()) || authModel.getCurrentUser();
     if (!usuario) {
+        if (document.body) {
+            setElementVisibility(document.body, false);
+        }
         if (
             typeof window !== 'undefined' &&
             window.location &&
             !String(window.location.href || '').includes('login.html')
         ) {
-            window.location.href = './login.html';
+            navigateReplace('./login.html');
         }
         return null;
     }
 
     if (requiredPermission && !authModel.hasPermission(requiredPermission)) {
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './catalogo.html?error=403';
+        if (document.body) {
+            setElementVisibility(document.body, false);
         }
+        navigateReplace('./catalogo.html?error=403');
         return null;
     }
 
     initNavbar(usuario, authModel);
+    if (document.body) {
+        setElementVisibility(document.body, true);
+    }
     return usuario;
 }

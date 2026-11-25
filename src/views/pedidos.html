@@ -32,7 +32,7 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/responsive/3.0.3/css/responsive.bootstrap5.min.css">
 </head>
-<body class="bg-light">
+<body class="bg-light d-none" hidden>
     <!-- Barra de Navegación Principal -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
         <div class="container-fluid px-4">
@@ -43,13 +43,13 @@
             </button>
             <div class="collapse navbar-collapse" id="navPrincipal">
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    <li class="nav-item" id="navItemProductos">
+                    <li class="nav-item d-none" id="navItemProductos" hidden>
                         <a class="nav-link" id="navProductos" href="./productos.html">Productos</a>
                     </li>
                     <li class="nav-item" id="navItemCatalogo">
                         <a class="nav-link" id="navCatalogo" href="./catalogo.html">Catálogo</a>
                     </li>
-                    <li class="nav-item" id="navItemClientes">
+                    <li class="nav-item d-none" id="navItemClientes" hidden>
                         <a class="nav-link" id="navClientes" href="./clientes.html">Clientes</a>
                     </li>
                     <li class="nav-item" id="navItemPedidos">
