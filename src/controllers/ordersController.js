@@ -1,36 +1,33 @@
-import { authGuard } from "../utils/authGuard.js";
-import { authService } from "../services/authService.js";
-import { orderService } from "../services/orderService.js";
+import { authGuard, authModel } from "../models/authModel.js";
 import {
-    OrderModel,
+    orderModel,
     ORDER_STATUS,
     ORDER_STATUS_LIST,
+    resolveOrderStatus,
     validateOrderId,
     canClientCancelStatus,
-    validateOrderStatusTransition
+    validateOrderStatusTransition,
+    formatPostalAddress
 } from "../models/orderModel.js";
 import {
     baseTableOptions,
+    confirmAction,
     escapeHtml,
     safeTextRender,
     formatCurrency,
     formatDate,
-    initNavbar,
+    initAuthenticatedView,
     resolveConnectedPermissions,
     clearTbody,
-    getDoc,
     setElementVisibility,
     extractProblemMessage,
     showModal,
     bindModalDismiss
-} from "../utils/tableHelpers.js";
+} from "./uiHelpers.js";
 
-// Guardia de navegación síncrona como primera instrucción ejecutable
 authGuard();
 
 let allOrdersCache = [];
-let visibleOrdersCache = [];
-const consultedOrderIds = new Set();
 const ownedOrderIds = new Set();
 const inFlightOrderIds = new Set();
 let permisosActuales = {
@@ -38,171 +35,117 @@ let permisosActuales = {
     canUpdateOrderStatus: false,
     canCancelOwnOrders: false
 };
-let usuarioActual = null;
 let tabla = null;
 let currentModalOrderId = null;
 
-function askConfirmation(message) {
-    if (typeof globalThis !== 'undefined' && typeof globalThis.confirm === 'function') {
-        return Boolean(globalThis.confirm(message));
-    }
-    if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-        return Boolean(window.confirm(message));
-    }
-    return false;
+function showAlert(id, message = '', visible = Boolean(message)) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = visible ? String(message) : '';
+    setElementVisibility(el, visible);
 }
 
-function showOrdersAlert(doc, message = '', visible = Boolean(message)) {
-    const alertEl = doc?.getElementById('alertOrdenes');
-    if (!alertEl) return;
-    alertEl.textContent = visible ? String(message || '') : '';
-    setElementVisibility(alertEl, visible);
+function setOrdersTableMessage(message) {
+    const tbody = document.getElementById('tbodyPedidos');
+    if (!tbody) return;
+    clearTbody(tbody);
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 9;
+    td.className = 'text-center text-muted py-3';
+    td.textContent = message;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
 }
 
-function showOrdersSuccess(doc, message = '', visible = Boolean(message)) {
-    const alertEl = doc?.getElementById('alertOrdenesExito');
-    if (!alertEl) return;
-    alertEl.textContent = visible ? String(message || '') : '';
-    setElementVisibility(alertEl, visible);
+function isOrderCancellableByClient(order, statusCode) {
+    return Boolean(
+        permisosActuales.canCancelOwnOrders &&
+        canClientCancelStatus(statusCode) &&
+        ownedOrderIds.has(Number(order?.orderId))
+    );
 }
 
-function showDetailModalAlert(doc, message = '', visible = Boolean(message)) {
-    const alertEl = doc?.getElementById('alertDetalleOrden');
-    if (!alertEl) return;
-    alertEl.textContent = visible ? String(message || '') : '';
-    setElementVisibility(alertEl, visible);
-}
-
-function isOrderCancellableByCurrentUser(order, statusCode) {
-    if (!permisosActuales.canCancelOwnOrders || !order) return false;
-    if (!canClientCancelStatus(statusCode)) return false;
-
-    const orderId = Number(order.orderId ?? order.OrderId);
-    if (Number.isFinite(orderId) && ownedOrderIds.has(orderId)) {
-        return true;
-    }
-    return isOrderOwnedByClient(order, usuarioActual);
-}
-
-function updateModalActionControls(doc, order = null, status = null) {
-    if (!doc) return;
-
-    const adminWrapper = doc.getElementById('adminEstadoOrdenWrapper');
-    const selModalStatus = doc.getElementById('selCambiarEstadoOrden');
-    const btnGuardarEstado = doc.getElementById('btnGuardarEstadoOrden');
-    const lblAyuda = doc.getElementById('lblEstadoOrdenAyuda');
-    const btnCancelarModal = doc.getElementById('btnCancelarPedidoModal');
+function updateModalActionControls(order = null, status = null) {
+    const adminWrapper = document.getElementById('adminEstadoOrdenWrapper');
+    const selModalStatus = document.getElementById('selCambiarEstadoOrden');
+    const btnGuardarEstado = document.getElementById('btnGuardarEstadoOrden');
+    const lblAyuda = document.getElementById('lblEstadoOrdenAyuda');
+    const btnCancelarModal = document.getElementById('btnCancelarPedidoModal');
 
     if (!order || !status) {
-        if (adminWrapper) setElementVisibility(adminWrapper, false);
-        if (btnCancelarModal) setElementVisibility(btnCancelarModal, false);
+        setElementVisibility(adminWrapper, false);
+        setElementVisibility(btnCancelarModal, false);
         if (lblAyuda) lblAyuda.textContent = '';
         return;
     }
 
-    const canManageStatus = Boolean(permisosActuales.canUpdateOrderStatus);
-    if (adminWrapper) {
-        setElementVisibility(adminWrapper, canManageStatus);
-    }
+    const canManage = permisosActuales.canUpdateOrderStatus;
+    setElementVisibility(adminWrapper, canManage);
 
-    if (canManageStatus && selModalStatus) {
-        selModalStatus.value = status.code;
+    if (canManage && selModalStatus) {
         const isCancelled = status.code === ORDER_STATUS.CANCELADO.code;
         const isDelivered = status.code === ORDER_STATUS.ENTREGADO.code;
+        selModalStatus.value = status.code;
         selModalStatus.disabled = isCancelled;
-        if (btnGuardarEstado) {
-            btnGuardarEstado.disabled = isCancelled;
-        }
+        if (btnGuardarEstado) btnGuardarEstado.disabled = isCancelled;
 
-        if (Array.isArray(selModalStatus.children)) {
-            for (const opt of selModalStatus.children) {
-                if (opt?.value === ORDER_STATUS.CANCELADO.code) {
-                    opt.disabled = isDelivered;
-                }
-            }
-        } else if (typeof selModalStatus.querySelectorAll === 'function') {
-            const opts = selModalStatus.querySelectorAll('option');
-            for (const opt of opts) {
-                if (opt?.value === ORDER_STATUS.CANCELADO.code) {
-                    opt.disabled = isDelivered;
-                }
-            }
+        for (const opt of selModalStatus.querySelectorAll('option')) {
+            if (opt.value === ORDER_STATUS.CANCELADO.code) opt.disabled = isDelivered;
         }
 
         if (lblAyuda) {
-            if (isCancelled) {
-                lblAyuda.textContent = 'Este pedido fue cancelado y se encuentra en estado final irreversible.';
-            } else if (isDelivered) {
-                lblAyuda.textContent = 'Un pedido entregado no puede ser cancelado. Devolverlo a Pendiente requerirá confirmación.';
-            } else {
-                lblAyuda.textContent = 'Cancelar el pedido es irreversible y devuelve automáticamente el stock de los productos.';
-            }
+            lblAyuda.textContent = isCancelled
+                ? 'Este pedido fue cancelado y se encuentra en estado final irreversible.'
+                : (isDelivered
+                    ? 'Un pedido entregado no puede ser cancelado. Devolverlo a Pendiente requerirá confirmación.'
+                    : 'Cancelar el pedido es irreversible y devuelve automáticamente el stock de los productos.');
         }
     }
 
     if (btnCancelarModal) {
-        const canCancel = isOrderCancellableByCurrentUser(order, status.code);
+        const canCancel = isOrderCancellableByClient(order, status.code);
         setElementVisibility(btnCancelarModal, canCancel);
         btnCancelarModal.disabled = !canCancel;
-        if (canCancel) {
-            btnCancelarModal.setAttribute?.('data-id', String(order.orderId ?? ''));
-        }
+        if (canCancel) btnCancelarModal.dataset.id = String(order.orderId);
     }
 }
 
-function resetDetailModalState(doc, { errorMessage = '', title = 'Detalle de Orden' } = {}) {
-    if (!doc) return;
+function resetDetailModalState({ errorMessage = '', title = 'Detalle de Orden' } = {}) {
     currentModalOrderId = null;
-
-    const titleEl = doc.getElementById('modalDetalleOrdenTitulo');
-    const badgeEl = doc.getElementById('detOrdenEstatus');
-
+    const titleEl = document.getElementById('modalDetalleOrdenTitulo');
     if (titleEl) titleEl.textContent = title;
+
+    const badgeEl = document.getElementById('detOrdenEstatus');
     if (badgeEl) {
         badgeEl.textContent = '-';
         badgeEl.className = 'badge bg-secondary ms-2';
     }
-    showDetailModalAlert(doc, errorMessage, Boolean(errorMessage));
+    showAlert('alertDetalleOrden', errorMessage, Boolean(errorMessage));
 
-    const detailIds = [
-        'detOrdenId',
-        'detOrdenFecha',
-        'detOrdenRequerida',
-        'detOrdenEnvio',
-        'detOrdenFlete',
-        'detOrdenDestinatario',
-        'detOrdenDireccion',
-        'detOrdenCiudad',
-        'detOrdenPais',
-        'detOrdenDireccionCompleta'
-    ];
-    for (const id of detailIds) {
-        const el = doc.getElementById(id);
-        if (el) el.textContent = '-';
-    }
+    ['detOrdenId', 'detOrdenFecha', 'detOrdenRequerida', 'detOrdenEnvio', 'detOrdenFlete',
+     'detOrdenDestinatario', 'detOrdenDireccion', 'detOrdenCiudad', 'detOrdenPais', 'detOrdenDireccionCompleta']
+        .forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '-';
+        });
 
-    const totalEl = doc.getElementById('detOrdenTotal');
+    const totalEl = document.getElementById('detOrdenTotal');
     if (totalEl) totalEl.textContent = '$0.00';
 
-    const tbodyItems = doc.getElementById('tbodyDetalleOrdenProductos');
-    if (tbodyItems) clearTbody(tbodyItems);
-
-    const itemsWrapper = doc.getElementById('detOrdenProductosWrapper');
-    if (itemsWrapper) setElementVisibility(itemsWrapper, false);
-
-    updateModalActionControls(doc, null, null);
+    clearTbody(document.getElementById('tbodyDetalleOrdenProductos'));
+    setElementVisibility(document.getElementById('detOrdenProductosWrapper'), false);
+    updateModalActionControls(null, null);
 }
 
-function renderDetailOrderItems(doc, order) {
-    const itemsWrapper = doc.getElementById('detOrdenProductosWrapper');
-    const tbodyItems = doc.getElementById('tbodyDetalleOrdenProductos');
-    const totalEl = doc.getElementById('detOrdenTotal');
-
+function renderDetailOrderItems(order) {
+    const itemsWrapper = document.getElementById('detOrdenProductosWrapper');
+    const tbodyItems = document.getElementById('tbodyDetalleOrdenProductos');
+    const totalEl = document.getElementById('detOrdenTotal');
     if (!itemsWrapper || !tbodyItems) return;
 
     clearTbody(tbodyItems);
     const items = Array.isArray(order?.items) ? order.items : [];
-
     if (items.length === 0) {
         setElementVisibility(itemsWrapper, false);
         return;
@@ -210,327 +153,98 @@ function renderDetailOrderItems(doc, order) {
 
     let computedTotal = 0;
     for (const item of items) {
-        const tr = doc.createElement('tr');
-
-        const tdProd = doc.createElement('td');
-        tdProd.textContent = String(item?.productName || `Producto #${item?.productId ?? ''}`);
-
-        const tdPrice = doc.createElement('td');
-        tdPrice.className = 'text-end';
-        tdPrice.textContent = formatCurrency(item?.unitPrice ?? 0);
-
-        const tdQty = doc.createElement('td');
-        tdQty.className = 'text-end';
-        tdQty.textContent = String(item?.quantity ?? 0);
-
-        const subtotal = Number.isFinite(Number(item?.subtotal))
+        const subtotal = Number.isFinite(Number(item.subtotal))
             ? Number(item.subtotal)
-            : Number(item?.unitPrice ?? 0) * Number(item?.quantity ?? 0);
+            : Number(item.unitPrice ?? 0) * Number(item.quantity ?? 0);
         computedTotal += subtotal;
 
-        const tdSubtotal = doc.createElement('td');
-        tdSubtotal.className = 'text-end fw-semibold';
-        tdSubtotal.textContent = formatCurrency(subtotal);
-
-        tr.appendChild(tdProd);
-        tr.appendChild(tdPrice);
-        tr.appendChild(tdQty);
-        tr.appendChild(tdSubtotal);
+        const tr = document.createElement('tr');
+        const cells = [
+            { text: item.productName || `Producto #${item.productId}`, cls: '' },
+            { text: formatCurrency(item.unitPrice ?? 0), cls: 'text-end' },
+            { text: String(item.quantity ?? 0), cls: 'text-end' },
+            { text: formatCurrency(subtotal), cls: 'text-end fw-semibold' }
+        ];
+        for (const c of cells) {
+            const td = document.createElement('td');
+            if (c.cls) td.className = c.cls;
+            td.textContent = c.text;
+            tr.appendChild(td);
+        }
         tbodyItems.appendChild(tr);
     }
 
-    const totalFinal = Number.isFinite(Number(order?.total)) && Number(order.total) > 0
-        ? Number(order.total)
-        : computedTotal;
-    if (totalEl) totalEl.textContent = formatCurrency(totalFinal);
+    if (totalEl) {
+        totalEl.textContent = formatCurrency(Number(order?.total) > 0 ? Number(order.total) : computedTotal);
+    }
     setElementVisibility(itemsWrapper, true);
 }
 
-function populateDetailModal(doc, order, referenceDate = new Date()) {
-    if (!doc || !order) return ORDER_STATUS.PENDIENTE;
+function populateDetailModal(order) {
+    if (!order) return;
+    currentModalOrderId = Number(order.orderId) || null;
+    const status = resolveOrderStatus(order);
 
-    currentModalOrderId = Number(order.orderId ?? order.OrderId) || null;
-    const status = OrderModel.resolveLogisticsStatus(order, referenceDate);
-    const fullAddress = OrderModel.formatPostalAddress(order);
-
-    const setField = (id, value) => {
-        const el = doc.getElementById(id);
-        if (el) el.textContent = String(value);
-    };
-
-    setField('modalDetalleOrdenTitulo', `Detalle de Orden #${order.orderId ?? '-'}`);
-    setField('detOrdenId', order.orderId !== null && order.orderId !== undefined ? `#${order.orderId}` : '-');
-    setField('detOrdenFecha', formatDate(order.orderDate));
-    setField('detOrdenRequerida', formatDate(order.requiredDate));
-    setField(
-        'detOrdenEnvio',
-        status.code === ORDER_STATUS.CANCELADO.code
+    const fields = {
+        modalDetalleOrdenTitulo: `Detalle de Orden #${order.orderId ?? '-'}`,
+        detOrdenId: order.orderId != null ? `#${order.orderId}` : '-',
+        detOrdenFecha: formatDate(order.orderDate),
+        detOrdenRequerida: formatDate(order.requiredDate),
+        detOrdenEnvio: status.code === ORDER_STATUS.CANCELADO.code
             ? 'Cancelado'
-            : (order.shippedDate ? formatDate(order.shippedDate) : 'Pendiente de envío')
-    );
-    setField(
-        'detOrdenFlete',
-        order.freight !== null && order.freight !== undefined ? formatCurrency(order.freight) : '-'
-    );
-    setField('detOrdenDestinatario', order.shipName || '-');
-    setField('detOrdenDireccion', order.shipAddress || '-');
-    setField('detOrdenCiudad', order.shipCity || '-');
-    setField('detOrdenPais', order.shipCountry || '-');
-    setField('detOrdenDireccionCompleta', fullAddress);
+            : (order.shippedDate ? formatDate(order.shippedDate) : 'Pendiente de envío'),
+        detOrdenFlete: order.freight != null ? formatCurrency(order.freight) : '-',
+        detOrdenDestinatario: order.shipName || '-',
+        detOrdenDireccion: order.shipAddress || '-',
+        detOrdenCiudad: order.shipCity || '-',
+        detOrdenPais: order.shipCountry || '-',
+        detOrdenDireccionCompleta: formatPostalAddress(order)
+    };
+    for (const [id, val] of Object.entries(fields)) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(val);
+    }
 
-    const badgeEl = doc.getElementById('detOrdenEstatus');
+    const badgeEl = document.getElementById('detOrdenEstatus');
     if (badgeEl) {
         badgeEl.textContent = status.label;
         badgeEl.className = `badge ms-2 ${status.badgeClass}`;
     }
 
-    showDetailModalAlert(doc, '', false);
-    renderDetailOrderItems(doc, order);
-    updateModalActionControls(doc, order, status);
-
-    return status;
-}
-
-function resetOrdersState() {
-    allOrdersCache = [];
-    visibleOrdersCache = [];
-    consultedOrderIds.clear();
-    ownedOrderIds.clear();
-    inFlightOrderIds.clear();
-    permisosActuales = {
-        canViewAllOrders: false,
-        canUpdateOrderStatus: false,
-        canCancelOwnOrders: false
-    };
-    usuarioActual = null;
-    tabla = null;
-    currentModalOrderId = null;
-}
-
-// Determina si una orden pertenece a la cuenta del cliente conectado
-function isOrderOwnedByClient(order, usuario) {
-    if (!order || typeof order !== 'object' || !usuario || typeof usuario !== 'object') {
-        return false;
-    }
-
-    const rawUsername = String(usuario.username || usuario.nombre || '').trim().toLowerCase();
-    if (!rawUsername) return false;
-
-    const orderCustomerId = String(order.customerId ?? order.CustomerId ?? '').trim().toLowerCase();
-    if (orderCustomerId && orderCustomerId === rawUsername) {
-        return true;
-    }
-
-    if (rawUsername.length < 3) {
-        return false;
-    }
-
-    const shipName = String(order.shipName ?? order.ShipName ?? '').trim().toLowerCase();
-    if (!shipName) return false;
-
-    const compactUser = rawUsername.replace(/[\s_-]+/g, '');
-    const compactShip = shipName.replace(/[\s_-]+/g, '');
-    return shipName.includes(rawUsername) || (compactUser.length >= 3 && compactShip === compactUser);
-}
-
-// Filtra las órdenes según los permisos autorizados por el backend
-function filtrarOrdenesPorPermisos(orders = [], usuario = usuarioActual, consultedIds = consultedOrderIds) {
-    if (!Array.isArray(orders)) return [];
-
-    const perms = resolveConnectedPermissions(usuario, authService);
-    if (perms.canViewAllOrders) {
-        return [...orders];
-    }
-
-    const idSet = consultedIds instanceof Set
-        ? consultedIds
-        : new Set(Array.isArray(consultedIds) ? consultedIds.map((v) => Number(v)) : []);
-
-    return orders.filter((order) => {
-        if (!order || typeof order !== 'object') return false;
-        const idNum = Number(order.orderId ?? order.OrderId);
-        return (Number.isFinite(idNum) && (idSet.has(idNum) || ownedOrderIds.has(idNum))) || isOrderOwnedByClient(order, usuario);
-    });
-}
-
-// Filtro puro por estatus logístico (ALL | PENDIENTE | PENDIENTE_ENVIO | EN_TRANSITO | ENTREGADO | CANCELADO)
-function filtrarOrdenesPorEstado(orders = [], statusCode = 'ALL', referenceDate = new Date()) {
-    if (!Array.isArray(orders)) return [];
-    const normalized = String(statusCode || 'ALL').trim().toUpperCase();
-    if (!normalized || normalized === 'ALL') {
-        return [...orders];
-    }
-
-    return orders.filter((order) => OrderModel.resolveLogisticsStatus(order, referenceDate).code === normalized);
-}
-
-function buildAdminStatusSelectElement(doc, orderId, status) {
-    const select = doc.createElement('select');
-    select.className = 'form-select form-select-sm d-inline-block w-auto ms-1';
-    select.setAttribute('data-action', 'cambiar-estado');
-    select.setAttribute('data-id', String(orderId));
-    select.setAttribute('aria-label', `Cambiar estado de orden #${orderId}`);
-
-    const isCancelled = status.code === ORDER_STATUS.CANCELADO.code;
-    const isDelivered = status.code === ORDER_STATUS.ENTREGADO.code;
-    select.disabled = isCancelled;
-
-    for (const item of ORDER_STATUS_LIST) {
-        const opt = doc.createElement('option');
-        opt.value = item.code;
-        opt.textContent = item.label;
-        if (item.code === status.code) {
-            opt.selected = true;
-        }
-        if (isDelivered && item.code === ORDER_STATUS.CANCELADO.code) {
-            opt.disabled = true;
-        }
-        select.appendChild(opt);
-    }
-
-    select.value = status.code;
-    return select;
+    showAlert('alertDetalleOrden', '', false);
+    renderDetailOrderItems(order);
+    updateModalActionControls(order, status);
 }
 
 function buildAdminStatusSelectHtml(orderId, status) {
     const isCancelled = status.code === ORDER_STATUS.CANCELADO.code;
     const isDelivered = status.code === ORDER_STATUS.ENTREGADO.code;
-    const disabledAttr = isCancelled ? ' disabled' : '';
-    const optionsHtml = ORDER_STATUS_LIST.map((item) => {
-        const selectedAttr = item.code === status.code ? ' selected' : '';
-        const optDisabledAttr = isDelivered && item.code === ORDER_STATUS.CANCELADO.code ? ' disabled' : '';
-        return `<option value="${escapeHtml(item.code)}"${selectedAttr}${optDisabledAttr}>${escapeHtml(item.label)}</option>`;
+    const options = ORDER_STATUS_LIST.map((item) => {
+        const selected = item.code === status.code ? ' selected' : '';
+        const disabled = isDelivered && item.code === ORDER_STATUS.CANCELADO.code ? ' disabled' : '';
+        return `<option value="${escapeHtml(item.code)}"${selected}${disabled}>${escapeHtml(item.label)}</option>`;
     }).join('');
-
-    return `<select class="form-select form-select-sm d-inline-block w-auto ms-1" data-action="cambiar-estado" data-id="${escapeHtml(orderId)}" aria-label="Cambiar estado de orden #${escapeHtml(orderId)}"${disabledAttr}>${optionsHtml}</select>`;
+    return `<select class="form-select form-select-sm d-inline-block w-auto ms-1" data-action="cambiar-estado" data-id="${escapeHtml(orderId)}" aria-label="Cambiar estado de orden #${escapeHtml(orderId)}"${isCancelled ? ' disabled' : ''}>${options}</select>`;
 }
 
-// Renderiza la tabla sin DataTables usando únicamente createElement y textContent (anti-XSS)
-function renderizarTablaOrdenesFallback(
-    lista = visibleOrdersCache,
-    customDoc = null,
-    referenceDate = new Date()
-) {
-    const doc = getDoc(customDoc);
-    if (!doc) return;
+function aplicarFiltrosOrdenes() {
+    const selectedStatus = (document.getElementById('selEstadoOrden')?.value || 'ALL').toUpperCase();
+    const visible = selectedStatus === 'ALL'
+        ? allOrdersCache
+        : allOrdersCache.filter((order) => resolveOrderStatus(order).code === selectedStatus);
 
-    const tbody = doc.getElementById('tbodyPedidos');
-    if (!tbody) return;
-
-    clearTbody(tbody);
-    const items = Array.isArray(lista) ? lista : [];
-
-    if (items.length === 0) {
-        const trEmpty = doc.createElement('tr');
-        trEmpty.setAttribute?.('data-empty', 'true');
-        const tdEmpty = doc.createElement('td');
-        tdEmpty.colSpan = 9;
-        tdEmpty.setAttribute?.('colspan', '9');
-        tdEmpty.className = 'text-center text-muted py-3';
-        tdEmpty.textContent = !permisosActuales.canViewAllOrders
-            ? 'No hay órdenes asociadas a tu cuenta visibles actualmente. Ingresa tu N° de Orden en el buscador para consultarla.'
-            : 'No se encontraron órdenes con los criterios seleccionados.';
-        trEmpty.appendChild(tdEmpty);
-        tbody.appendChild(trEmpty);
-        return;
-    }
-
-    for (const order of items) {
-        const orderId = order?.orderId ?? '';
-        const status = OrderModel.resolveLogisticsStatus(order, referenceDate);
-
-        const tr = doc.createElement('tr');
-        tr.setAttribute?.('data-order-id', String(orderId));
-
-        const tdId = doc.createElement('td');
-        const strongId = doc.createElement('strong');
-        strongId.textContent = `#${orderId}`;
-        tdId.appendChild(strongId);
-
-        const tdOrderDate = doc.createElement('td');
-        tdOrderDate.textContent = formatDate(order?.orderDate);
-
-        const tdShippedDate = doc.createElement('td');
-        tdShippedDate.textContent = status.code === ORDER_STATUS.CANCELADO.code
-            ? 'Cancelado'
-            : (order?.shippedDate ? formatDate(order.shippedDate) : 'Pendiente');
-
-        const tdStatus = doc.createElement('td');
-        const spanStatus = doc.createElement('span');
-        spanStatus.className = `badge ${status.badgeClass}`;
-        spanStatus.textContent = status.label;
-        tdStatus.appendChild(spanStatus);
-
-        const tdFreight = doc.createElement('td');
-        tdFreight.textContent = order?.freight !== null && order?.freight !== undefined
-            ? formatCurrency(order.freight)
-            : '-';
-
-        const tdShipName = doc.createElement('td');
-        tdShipName.textContent = String(order?.shipName || '-');
-
-        const tdShipCity = doc.createElement('td');
-        tdShipCity.textContent = String(order?.shipCity || '-');
-
-        const tdShipCountry = doc.createElement('td');
-        tdShipCountry.textContent = String(order?.shipCountry || '-');
-
-        const tdActions = doc.createElement('td');
-        tdActions.className = 'text-center text-nowrap';
-        const btnVer = doc.createElement('button');
-        btnVer.type = 'button';
-        btnVer.className = 'btn btn-sm btn-outline-primary';
-        btnVer.setAttribute('data-action', 'ver');
-        btnVer.setAttribute('data-id', String(orderId));
-        btnVer.textContent = 'Ver Detalle';
-        tdActions.appendChild(btnVer);
-
-        if (permisosActuales.canUpdateOrderStatus) {
-            tdActions.appendChild(buildAdminStatusSelectElement(doc, orderId, status));
-        } else if (isOrderCancellableByCurrentUser(order, status.code)) {
-            const btnCancelar = doc.createElement('button');
-            btnCancelar.type = 'button';
-            btnCancelar.className = 'btn btn-sm btn-outline-danger ms-1';
-            btnCancelar.setAttribute('data-action', 'cancelar');
-            btnCancelar.setAttribute('data-id', String(orderId));
-            btnCancelar.textContent = 'Cancelar Compra';
-            tdActions.appendChild(btnCancelar);
-        }
-
-        tr.appendChild(tdId);
-        tr.appendChild(tdOrderDate);
-        tr.appendChild(tdShippedDate);
-        tr.appendChild(tdStatus);
-        tr.appendChild(tdFreight);
-        tr.appendChild(tdShipName);
-        tr.appendChild(tdShipCity);
-        tr.appendChild(tdShipCountry);
-        tr.appendChild(tdActions);
-
-        tbody.appendChild(tr);
-    }
-}
-
-function aplicarFiltrosOrdenes(customDoc = null, referenceDate = new Date()) {
-    const doc = getDoc(customDoc);
-    const selEstado = doc?.getElementById('selEstadoOrden');
-    const selectedStatus = selEstado?.value || 'ALL';
-
-    const byPermission = filtrarOrdenesPorPermisos(allOrdersCache, usuarioActual, consultedOrderIds);
-    visibleOrdersCache = filtrarOrdenesPorEstado(byPermission, selectedStatus, referenceDate);
-
-    const lblTotal = doc?.getElementById('lblTotalOrdenes');
-    if (lblTotal) {
-        lblTotal.textContent = String(visibleOrdersCache.length);
-    }
+    const lblTotal = document.getElementById('lblTotalOrdenes');
+    if (lblTotal) lblTotal.textContent = String(visible.length);
 
     if (tabla) {
-        tabla.clear().rows.add(visibleOrdersCache).draw();
-    } else {
-        renderizarTablaOrdenesFallback(visibleOrdersCache, doc, referenceDate);
+        tabla.clear().rows.add(visible).draw();
+    } else if (visible.length === 0) {
+        setOrdersTableMessage(
+            permisosActuales.canViewAllOrders
+                ? 'No se encontraron órdenes con los criterios seleccionados.'
+                : 'No hay órdenes asociadas a tu cuenta visibles actualmente.'
+        );
     }
-
-    return visibleOrdersCache;
 }
 
 function inicializarTabla() {
@@ -553,26 +267,23 @@ function inicializarTabla() {
             {
                 data: 'shippedDate',
                 render: (d, type, row) => {
-                    const status = OrderModel.resolveLogisticsStatus(row);
                     if (type !== 'display') return String(d ?? '');
-                    if (status.code === ORDER_STATUS.CANCELADO.code) return 'Cancelado';
+                    if (resolveOrderStatus(row).code === ORDER_STATUS.CANCELADO.code) return 'Cancelado';
                     return escapeHtml(d ? formatDate(d) : 'Pendiente');
                 }
             },
             {
                 data: null,
                 render: (_, type, row) => {
-                    const status = OrderModel.resolveLogisticsStatus(row);
-                    if (type !== 'display') return status.label;
-                    return `<span class="badge ${escapeHtml(status.badgeClass)}">${escapeHtml(status.label)}</span>`;
+                    const status = resolveOrderStatus(row);
+                    return type === 'display'
+                        ? `<span class="badge ${escapeHtml(status.badgeClass)}">${escapeHtml(status.label)}</span>`
+                        : status.label;
                 }
             },
             {
                 data: 'freight',
-                render: (d, type) => {
-                    if (type !== 'display') return Number(d ?? 0);
-                    return d !== null && d !== undefined ? escapeHtml(formatCurrency(d)) : '-';
-                }
+                render: (d, type) => (type === 'display' ? (d != null ? escapeHtml(formatCurrency(d)) : '-') : Number(d ?? 0))
             },
             { data: 'shipName', render: safeTextRender('-') },
             { data: 'shipCity', render: safeTextRender('-') },
@@ -584,11 +295,11 @@ function inicializarTabla() {
                 className: 'text-center text-nowrap',
                 render: (_, __, row) => {
                     const orderId = row?.orderId ?? '';
-                    const status = OrderModel.resolveLogisticsStatus(row);
+                    const status = resolveOrderStatus(row);
                     let html = `<button type="button" class="btn btn-sm btn-outline-primary" data-action="ver" data-id="${escapeHtml(orderId)}">Ver Detalle</button>`;
                     if (permisosActuales.canUpdateOrderStatus) {
                         html += buildAdminStatusSelectHtml(orderId, status);
-                    } else if (isOrderCancellableByCurrentUser(row, status.code)) {
+                    } else if (isOrderCancellableByClient(row, status.code)) {
                         html += `<button type="button" class="btn btn-sm btn-outline-danger ms-1" data-action="cancelar" data-id="${escapeHtml(orderId)}">Cancelar Compra</button>`;
                     }
                     return html;
@@ -599,457 +310,299 @@ function inicializarTabla() {
 }
 
 function upsertOrderInCache(updatedOrder) {
-    if (!updatedOrder) return;
-    const idNum = Number(updatedOrder.orderId ?? updatedOrder.OrderId);
+    const idNum = Number(updatedOrder?.orderId);
     if (!Number.isFinite(idNum)) return;
-
-    const idx = allOrdersCache.findIndex((o) => Number(o?.orderId ?? o?.OrderId) === idNum);
-    if (idx >= 0) {
-        allOrdersCache[idx] = updatedOrder;
-    } else {
-        allOrdersCache = [updatedOrder, ...allOrdersCache];
-    }
+    const idx = allOrdersCache.findIndex((o) => Number(o.orderId) === idNum);
+    if (idx >= 0) allOrdersCache[idx] = updatedOrder;
+    else allOrdersCache = [updatedOrder, ...allOrdersCache];
 }
 
-async function cambiarEstadoOrden(orderId, targetStatus, customDoc = null, sourceSelect = null) {
-    const doc = getDoc(customDoc);
-    showOrdersAlert(doc, '', false);
-    showOrdersSuccess(doc, '', false);
+async function cambiarEstadoOrden(orderId, targetStatus, sourceSelect = null) {
+    showAlert('alertOrdenes', '', false);
+    showAlert('alertOrdenesExito', '', false);
 
     if (!permisosActuales.canUpdateOrderStatus) {
-        const deniedMsg = 'No tienes permisos para cambiar el estado de los pedidos.';
-        showOrdersAlert(doc, deniedMsg, true);
-        return { ok: false, status: 403, message: deniedMsg };
+        showAlert('alertOrdenes', 'No tienes permisos para cambiar el estado de los pedidos.', true);
+        return;
     }
 
     const validation = validateOrderId(orderId);
     if (!validation.valid) {
-        showOrdersAlert(doc, validation.error, true);
-        return { ok: false, status: 400, message: validation.error };
+        showAlert('alertOrdenes', validation.error, true);
+        return;
     }
 
     const validId = validation.value;
-    const existingOrder = allOrdersCache.find((o) => Number(o?.orderId ?? o?.OrderId) === validId);
-    const currentStatusObj = existingOrder
-        ? OrderModel.resolveLogisticsStatus(existingOrder)
-        : ORDER_STATUS.PENDIENTE;
+    const existingOrder = allOrdersCache.find((o) => Number(o.orderId) === validId);
+    const currentStatus = resolveOrderStatus(existingOrder);
 
     const revertSelect = () => {
-        if (sourceSelect) {
-            sourceSelect.value = currentStatusObj.code;
-        }
-        const modalSelect = doc?.getElementById('selCambiarEstadoOrden');
-        if (modalSelect && currentModalOrderId === validId) {
-            modalSelect.value = currentStatusObj.code;
-        }
+        if (sourceSelect) sourceSelect.value = currentStatus.code;
+        const modalSelect = document.getElementById('selCambiarEstadoOrden');
+        if (modalSelect && currentModalOrderId === validId) modalSelect.value = currentStatus.code;
     };
 
-    const transition = validateOrderStatusTransition(currentStatusObj.code, targetStatus, validId);
+    const transition = validateOrderStatusTransition(currentStatus.code, targetStatus, validId);
     if (!transition.valid) {
         revertSelect();
-        showOrdersAlert(doc, transition.error, true);
-        if (currentModalOrderId === validId) {
-            showDetailModalAlert(doc, transition.error, true);
-        }
-        return { ok: false, status: 409, message: transition.error };
+        showAlert('alertOrdenes', transition.error, true);
+        if (currentModalOrderId === validId) showAlert('alertDetalleOrden', transition.error, true);
+        return;
     }
+    if (transition.noOp || inFlightOrderIds.has(validId)) return;
 
-    if (transition.noOp) {
-        return { ok: true, status: 200, noOp: true, data: existingOrder };
-    }
-
-    if (inFlightOrderIds.has(validId)) {
-        return { ok: false, busy: true, status: 429, message: 'Ya existe una actualización en curso para este pedido.' };
-    }
-
-    if (transition.requiresConfirmation) {
-        const confirmed = askConfirmation(transition.confirmMessage);
-        if (!confirmed) {
-            revertSelect();
-            return { ok: false, cancelled: true, status: 0, message: 'Cambio de estado cancelado por el usuario.' };
-        }
+    if (transition.requiresConfirmation && !confirmAction(transition.confirmMessage)) {
+        revertSelect();
+        return;
     }
 
     inFlightOrderIds.add(validId);
     try {
-        const updated = await orderService.updateStatus(validId, transition.targetCode);
+        const updated = await orderModel.updateStatus(validId, transition.targetCode);
         upsertOrderInCache(updated);
-        aplicarFiltrosOrdenes(doc);
+        aplicarFiltrosOrdenes();
 
-        const newStatus = OrderModel.resolveLogisticsStatus(updated);
-        if (currentModalOrderId === validId) {
-            populateDetailModal(doc, updated);
-        }
+        const newStatus = resolveOrderStatus(updated);
+        if (currentModalOrderId === validId) populateDetailModal(updated);
 
         const successMsg = newStatus.code === ORDER_STATUS.CANCELADO.code
             ? `El pedido #${validId} fue cancelado y las unidades de los productos fueron devueltas al stock.`
             : `El estado del pedido #${validId} se actualizó a "${newStatus.label}".`;
-        showOrdersSuccess(doc, successMsg, true);
-
-        return { ok: true, status: 200, data: updated, logisticsStatus: newStatus };
+        showAlert('alertOrdenesExito', successMsg, true);
     } catch (err) {
         revertSelect();
-        const status = Number(err?.status || err?.problemDetails?.status) || 500;
         const msg = extractProblemMessage(err, 'No se pudo actualizar el estado del pedido.');
-        showOrdersAlert(doc, msg, true);
-        if (currentModalOrderId === validId) {
-            showDetailModalAlert(doc, msg, true);
-        }
-        return { ok: false, status, message: msg };
+        showAlert('alertOrdenes', msg, true);
+        if (currentModalOrderId === validId) showAlert('alertDetalleOrden', msg, true);
     } finally {
         inFlightOrderIds.delete(validId);
     }
 }
 
-async function cancelarPedidoCliente(orderId, customDoc = null) {
-    const doc = getDoc(customDoc);
-    showOrdersAlert(doc, '', false);
-    showOrdersSuccess(doc, '', false);
-
-    if (!permisosActuales.canCancelOwnOrders) {
-        const deniedMsg = 'No tienes permisos para cancelar pedidos desde esta acción.';
-        showOrdersAlert(doc, deniedMsg, true);
-        return { ok: false, status: 403, message: deniedMsg };
-    }
+async function cancelarPedidoCliente(orderId) {
+    showAlert('alertOrdenes', '', false);
+    showAlert('alertOrdenesExito', '', false);
 
     const validation = validateOrderId(orderId);
     if (!validation.valid) {
-        showOrdersAlert(doc, validation.error, true);
-        return { ok: false, status: 400, message: validation.error };
+        showAlert('alertOrdenes', validation.error, true);
+        return;
     }
 
     const validId = validation.value;
-    const existingOrder = allOrdersCache.find((o) => Number(o?.orderId ?? o?.OrderId) === validId);
-    const currentStatusObj = existingOrder
-        ? OrderModel.resolveLogisticsStatus(existingOrder)
-        : null;
+    const existingOrder = allOrdersCache.find((o) => Number(o.orderId) === validId);
+    const currentStatus = resolveOrderStatus(existingOrder);
 
-    if (!existingOrder || (!ownedOrderIds.has(validId) && !isOrderOwnedByClient(existingOrder, usuarioActual))) {
-        const deniedMsg = 'No tienes permiso para cancelar un pedido que no pertenece a tu cuenta.';
-        showOrdersAlert(doc, deniedMsg, true);
-        return { ok: false, status: 403, message: deniedMsg };
+    if (!permisosActuales.canCancelOwnOrders || !ownedOrderIds.has(validId)) {
+        showAlert('alertOrdenes', 'No tienes permiso para cancelar un pedido que no pertenece a tu cuenta.', true);
+        return;
     }
-
-    if (!currentStatusObj || !canClientCancelStatus(currentStatusObj.code)) {
-        const conflictMsg = currentStatusObj?.code === ORDER_STATUS.CANCELADO.code
+    if (!canClientCancelStatus(currentStatus.code)) {
+        const msg = currentStatus.code === ORDER_STATUS.CANCELADO.code
             ? 'Este pedido ya fue cancelado anteriormente.'
             : 'Un pedido ya entregado no puede ser cancelado.';
-        showOrdersAlert(doc, conflictMsg, true);
-        if (currentModalOrderId === validId) {
-            showDetailModalAlert(doc, conflictMsg, true);
-        }
-        return { ok: false, status: 409, message: conflictMsg };
+        showAlert('alertOrdenes', msg, true);
+        if (currentModalOrderId === validId) showAlert('alertDetalleOrden', msg, true);
+        return;
     }
+    if (inFlightOrderIds.has(validId)) return;
 
-    if (inFlightOrderIds.has(validId)) {
-        return { ok: false, busy: true, status: 429, message: 'Ya existe una cancelación en curso para este pedido.' };
-    }
-
-    const confirmed = askConfirmation(
+    const confirmed = confirmAction(
         `¿Confirmas que deseas cancelar tu compra del pedido #${validId}? Esta acción es irreversible y devolverá las unidades de los productos a su stock original.`
     );
-    if (!confirmed) {
-        return { ok: false, cancelled: true, status: 0, message: 'Cancelación abortada por el usuario.' };
-    }
+    if (!confirmed) return;
 
     inFlightOrderIds.add(validId);
     try {
-        const updated = await orderService.updateStatus(validId, ORDER_STATUS.CANCELADO.code);
+        const updated = await orderModel.updateStatus(validId, ORDER_STATUS.CANCELADO.code);
         upsertOrderInCache(updated);
-        aplicarFiltrosOrdenes(doc);
-
-        if (currentModalOrderId === validId) {
-            populateDetailModal(doc, updated);
-        }
-
-        const successMsg = `Tu pedido #${validId} ha sido cancelado y las unidades fueron devueltas al inventario.`;
-        showOrdersSuccess(doc, successMsg, true);
-        return { ok: true, status: 200, data: updated };
+        aplicarFiltrosOrdenes();
+        if (currentModalOrderId === validId) populateDetailModal(updated);
+        showAlert('alertOrdenesExito', `Tu pedido #${validId} ha sido cancelado y las unidades fueron devueltas al inventario.`, true);
     } catch (err) {
-        const status = Number(err?.status || err?.problemDetails?.status) || 500;
         const msg = extractProblemMessage(err, 'No se pudo cancelar el pedido.');
-        showOrdersAlert(doc, msg, true);
-        if (currentModalOrderId === validId) {
-            showDetailModalAlert(doc, msg, true);
-        }
-        return { ok: false, status, message: msg };
+        showAlert('alertOrdenes', msg, true);
+        if (currentModalOrderId === validId) showAlert('alertDetalleOrden', msg, true);
     } finally {
         inFlightOrderIds.delete(validId);
     }
 }
 
-async function listarOrdenes(customDoc = null) {
-    const doc = getDoc(customDoc);
-    showOrdersAlert(doc, '', false);
-    showOrdersSuccess(doc, '', false);
+async function listarOrdenes() {
+    showAlert('alertOrdenes', '', false);
+    showAlert('alertOrdenesExito', '', false);
 
     try {
-        const useMine = !permisosActuales.canViewAllOrders && typeof orderService.getMine === 'function';
-        const data = useMine ? await orderService.getMine() : await orderService.getAll();
-        allOrdersCache = Array.isArray(data) ? data : [];
+        const useMine = !permisosActuales.canViewAllOrders;
+        allOrdersCache = useMine ? await orderModel.getMine() : await orderModel.getAll();
+        ownedOrderIds.clear();
         if (useMine) {
-            ownedOrderIds.clear();
             for (const o of allOrdersCache) {
-                const idNum = Number(o?.orderId ?? o?.OrderId);
-                if (Number.isFinite(idNum) && idNum > 0) {
-                    ownedOrderIds.add(idNum);
-                }
+                if (Number.isFinite(Number(o.orderId))) ownedOrderIds.add(Number(o.orderId));
             }
         }
-        return aplicarFiltrosOrdenes(doc);
+        aplicarFiltrosOrdenes();
     } catch (err) {
         allOrdersCache = [];
-        visibleOrdersCache = [];
+        const lblTotal = document.getElementById('lblTotalOrdenes');
+        if (lblTotal) lblTotal.textContent = '0';
 
-        const lblTotal = doc?.getElementById('lblTotalOrdenes');
-        if (lblTotal) {
-            lblTotal.textContent = '0';
-        }
+        if (tabla) tabla.clear().draw();
+        else setOrdersTableMessage('No se pudieron cargar las órdenes.');
 
-        if (tabla) {
-            tabla.clear().draw();
-        } else {
-            renderizarTablaOrdenesFallback([], doc);
-        }
-
-        const msg = extractProblemMessage(err, 'No se pudieron cargar las órdenes.');
-        showOrdersAlert(doc, msg, true);
-        return [];
+        showAlert('alertOrdenes', extractProblemMessage(err, 'No se pudieron cargar las órdenes.'), true);
     }
 }
 
-async function verDetalleOrden(orderId, customDoc = null, preloadedOrder = null) {
-    const doc = getDoc(customDoc);
+async function verDetalleOrden(orderId, preloadedOrder = null) {
     const validation = validateOrderId(orderId);
-
     if (!validation.valid) {
-        showOrdersAlert(doc, validation.error, true);
-        return { ok: false, status: 400, message: validation.error };
+        showAlert('alertOrdenes', validation.error, true);
+        return;
     }
 
     const validId = validation.value;
-
-    if (!permisosActuales.canViewAllOrders && !preloadedOrder) {
-        const isConsulted = consultedOrderIds.has(validId);
-        const isVisible = visibleOrdersCache.some((o) => Number(o?.orderId) === validId);
-        const cachedMatch = allOrdersCache.find((o) => Number(o?.orderId) === validId);
-        const isOwned = Boolean(cachedMatch && isOrderOwnedByClient(cachedMatch, usuarioActual));
-
-        if (!isConsulted && !isVisible && !isOwned) {
-            const deniedMsg = 'No tienes permiso para acceder directamente a una orden ajena.';
-            showOrdersAlert(doc, deniedMsg, true);
-            return { ok: false, status: 403, message: deniedMsg };
-        }
+    if (!permisosActuales.canViewAllOrders && !preloadedOrder && !ownedOrderIds.has(validId)) {
+        showAlert('alertOrdenes', 'No tienes permiso para acceder directamente a una orden ajena.', true);
+        return;
     }
 
-    const modalEl = doc?.getElementById('modalDetalleOrden');
-    showModal(modalEl);
-    resetDetailModalState(doc, {
-        title: `Detalle de Orden #${validId}`,
-        errorMessage: ''
-    });
+    showModal(document.getElementById('modalDetalleOrden'));
+    resetDetailModalState({ title: `Detalle de Orden #${validId}` });
 
     try {
-        const order = preloadedOrder || await orderService.getById(validId);
-        if (!preloadedOrder && order) {
-            upsertOrderInCache(order);
-        }
-        const status = populateDetailModal(doc, order);
-        return { ok: true, status: 200, data: order, logisticsStatus: status };
+        const order = preloadedOrder || await orderModel.getById(validId);
+        if (!preloadedOrder && order) upsertOrderInCache(order);
+        populateDetailModal(order);
     } catch (err) {
-        const status = Number(err?.status || err?.problemDetails?.status) || 500;
-        const msg = extractProblemMessage(err, 'No se pudo cargar el detalle de la orden.');
-        resetDetailModalState(doc, {
+        resetDetailModalState({
             title: `Detalle de Orden #${validId}`,
-            errorMessage: msg
+            errorMessage: extractProblemMessage(err, 'No se pudo cargar el detalle de la orden.')
         });
-        return { ok: false, status, message: msg };
     }
 }
 
-async function buscarOrdenPorId(rawId, customDoc = null) {
-    const doc = getDoc(customDoc);
+async function buscarOrdenPorId(rawId) {
     const validation = validateOrderId(rawId);
-
     if (!validation.valid) {
-        showOrdersAlert(doc, validation.error, true);
-        return { ok: false, status: 400, message: validation.error };
+        showAlert('alertOrdenes', validation.error, true);
+        return;
     }
 
-    showOrdersAlert(doc, '', false);
-
+    showAlert('alertOrdenes', '', false);
     try {
-        const order = await orderService.getById(validation.value);
+        const order = await orderModel.getById(validation.value);
         const resolvedId = Number(order?.orderId ?? validation.value);
-
-        consultedOrderIds.add(resolvedId);
+        if (!permisosActuales.canViewAllOrders) ownedOrderIds.add(resolvedId);
         upsertOrderInCache(order);
 
-        const selEstado = doc?.getElementById('selEstadoOrden');
-        if (selEstado) {
-            selEstado.value = 'ALL';
-        }
-
-        aplicarFiltrosOrdenes(doc);
-        await verDetalleOrden(resolvedId, doc, order);
-
-        return { ok: true, status: 200, data: order };
+        const selEstado = document.getElementById('selEstadoOrden');
+        if (selEstado) selEstado.value = 'ALL';
+        aplicarFiltrosOrdenes();
+        await verDetalleOrden(resolvedId, order);
     } catch (err) {
-        const status = Number(err?.status || err?.problemDetails?.status) || 404;
-        const msg = extractProblemMessage(err, 'No se encontró la orden solicitada.');
-        showOrdersAlert(doc, msg, true);
-        return { ok: false, status, message: msg };
+        showAlert('alertOrdenes', extractProblemMessage(err, 'No se encontró la orden solicitada.'), true);
     }
 }
 
-function adaptarVistaPorPermisos(doc) {
-    if (!doc) return;
-
+function adaptarVistaPorPermisos() {
     const soloPropias = !permisosActuales.canViewAllOrders;
-    const puedeActualizarEstado = Boolean(permisosActuales.canUpdateOrderStatus);
-    const infoCliente = doc.getElementById('infoFiltroCliente');
-    if (infoCliente) {
-        setElementVisibility(infoCliente, soloPropias);
-    }
+    setElementVisibility(document.getElementById('infoFiltroCliente'), soloPropias);
 
-    const lblSubtitulo = doc.getElementById('lblSubtituloOrdenes');
+    const lblSubtitulo = document.getElementById('lblSubtituloOrdenes');
     if (lblSubtitulo) {
-        if (puedeActualizarEstado) {
-            lblSubtitulo.textContent = 'Gestión integral de órdenes, seguimiento y actualización de estados logísticos';
-        } else if (soloPropias) {
-            lblSubtitulo.textContent = 'Consulta de tus órdenes, seguimiento y cancelación de pedidos activos';
-        } else {
-            lblSubtitulo.textContent = 'Consulta integral de órdenes y logística de envíos de solo lectura';
-        }
+        lblSubtitulo.textContent = permisosActuales.canUpdateOrderStatus
+            ? 'Gestión integral de órdenes, seguimiento y actualización de estados logísticos'
+            : (soloPropias
+                ? 'Consulta de tus órdenes, seguimiento y cancelación de pedidos activos'
+                : 'Consulta integral de órdenes y logística de envíos de solo lectura');
     }
 }
 
 function bindOnce(el, eventName, handler) {
     if (!el || typeof el.addEventListener !== 'function') return;
-    if (!el.dataset) el.dataset = {};
-    const boundKey = `ordersBound_${eventName}`;
-    if (el.dataset[boundKey] === 'true') return;
-    el.dataset[boundKey] = 'true';
+    const key = `ordersBound_${eventName}`;
+    if (el.dataset[key] === 'true') return;
+    el.dataset[key] = 'true';
     el.addEventListener(eventName, handler);
 }
 
-function configurarEventos(doc) {
-    if (!doc) return;
+function configurarEventos() {
+    const txtBuscar = document.getElementById('txtBuscarOrdenId');
+    const selEstado = document.getElementById('selEstadoOrden');
+    const tablaEl = document.getElementById('tablaPedidos');
+    const selModalEstado = document.getElementById('selCambiarEstadoOrden');
+    const btnCancelarModal = document.getElementById('btnCancelarPedidoModal');
 
-    const formBuscar = doc.getElementById('formBuscarOrdenId');
-    const txtBuscar = doc.getElementById('txtBuscarOrdenId');
-    const btnLimpiar = doc.getElementById('btnLimpiarOrdenId');
-    const selEstado = doc.getElementById('selEstadoOrden');
-    const tablaEl = doc.getElementById('tablaPedidos');
-    const modalEl = doc.getElementById('modalDetalleOrden');
-    const btnGuardarEstado = doc.getElementById('btnGuardarEstadoOrden');
-    const selModalEstado = doc.getElementById('selCambiarEstadoOrden');
-    const btnCancelarModal = doc.getElementById('btnCancelarPedidoModal');
-
-    bindOnce(formBuscar, 'submit', async (e) => {
-        e?.preventDefault?.();
-        await buscarOrdenPorId(txtBuscar?.value, doc);
+    bindOnce(document.getElementById('formBuscarOrdenId'), 'submit', async (e) => {
+        e.preventDefault();
+        await buscarOrdenPorId(txtBuscar?.value);
     });
 
-    bindOnce(btnLimpiar, 'click', () => {
+    bindOnce(document.getElementById('btnLimpiarOrdenId'), 'click', () => {
         if (txtBuscar) txtBuscar.value = '';
         if (selEstado) selEstado.value = 'ALL';
-        showOrdersAlert(doc, '', false);
-        showOrdersSuccess(doc, '', false);
-        aplicarFiltrosOrdenes(doc);
+        showAlert('alertOrdenes', '', false);
+        showAlert('alertOrdenesExito', '', false);
+        aplicarFiltrosOrdenes();
     });
 
-    bindOnce(selEstado, 'change', () => {
-        aplicarFiltrosOrdenes(doc);
-    });
+    bindOnce(selEstado, 'change', aplicarFiltrosOrdenes);
 
     bindOnce(tablaEl, 'click', async (e) => {
-        const target = e?.target;
-        const btn = target && typeof target.closest === 'function'
-            ? target.closest('button[data-action]')
-            : target;
-        if (!btn) return;
-
-        const action = btn.dataset?.action || btn.getAttribute?.('data-action');
-        const orderId = btn.dataset?.id || btn.getAttribute?.('data-id');
-        if (action === 'ver' && orderId) {
-            await verDetalleOrden(orderId, doc);
-        } else if (action === 'cancelar' && orderId) {
-            await cancelarPedidoCliente(orderId, doc);
-        }
+        const btn = e.target?.closest?.('button[data-action]');
+        if (!btn?.dataset.id) return;
+        if (btn.dataset.action === 'ver') await verDetalleOrden(btn.dataset.id);
+        else if (btn.dataset.action === 'cancelar') await cancelarPedidoCliente(btn.dataset.id);
     });
 
     bindOnce(tablaEl, 'change', async (e) => {
-        const target = e?.target;
-        const select = target && typeof target.closest === 'function'
-            ? target.closest('select[data-action="cambiar-estado"]')
-            : target;
-        if (!select) return;
-
-        const action = select.dataset?.action || select.getAttribute?.('data-action');
-        const orderId = select.dataset?.id || select.getAttribute?.('data-id');
-        if (action === 'cambiar-estado' && orderId) {
-            await cambiarEstadoOrden(orderId, select.value, doc, select);
-        }
+        const select = e.target?.closest?.('select[data-action="cambiar-estado"]');
+        if (select?.dataset.id) await cambiarEstadoOrden(select.dataset.id, select.value, select);
     });
 
-    bindOnce(btnGuardarEstado, 'click', async () => {
+    bindOnce(document.getElementById('btnGuardarEstadoOrden'), 'click', async () => {
         if (currentModalOrderId && selModalEstado) {
-            await cambiarEstadoOrden(currentModalOrderId, selModalEstado.value, doc, selModalEstado);
+            await cambiarEstadoOrden(currentModalOrderId, selModalEstado.value, selModalEstado);
         }
     });
 
     bindOnce(btnCancelarModal, 'click', async () => {
-        const targetId = currentModalOrderId
-            || btnCancelarModal?.dataset?.id
-            || btnCancelarModal?.getAttribute?.('data-id');
-        if (targetId) {
-            await cancelarPedidoCliente(targetId, doc);
-        }
+        const targetId = currentModalOrderId || btnCancelarModal?.dataset?.id;
+        if (targetId) await cancelarPedidoCliente(targetId);
     });
 
-    if (modalEl) {
-        bindModalDismiss(modalEl, () => resetDetailModalState(doc));
-    }
+    bindModalDismiss(document.getElementById('modalDetalleOrden'), () => resetDetailModalState());
 }
 
-async function initOrdersController(customDoc = null) {
-    const doc = getDoc(customDoc);
-    if (!doc) return;
-
-    if (!authService.isAuthenticated()) {
-        return;
-    }
-
-    const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)
-        || authService.getCurrentUser()
-        || await authService.checkSession();
+async function initOrdersController() {
+    const usuario = await initAuthenticatedView({ authModel });
     if (!usuario) return;
 
-    resetOrdersState();
-    usuarioActual = usuario;
-    const resolvedPerms = resolveConnectedPermissions(usuario, authService);
+    allOrdersCache = [];
+    ownedOrderIds.clear();
+    inFlightOrderIds.clear();
+    tabla = null;
+    currentModalOrderId = null;
+
+    const perms = resolveConnectedPermissions(usuario, authModel);
     permisosActuales = {
-        canViewAllOrders: Boolean(resolvedPerms.canViewAllOrders),
-        canUpdateOrderStatus: Boolean(resolvedPerms.canUpdateOrderStatus),
-        canCancelOwnOrders: Boolean(resolvedPerms.canCancelOwnOrders)
+        canViewAllOrders: Boolean(perms.canViewAllOrders),
+        canUpdateOrderStatus: Boolean(perms.canUpdateOrderStatus),
+        canCancelOwnOrders: Boolean(perms.canCancelOwnOrders)
     };
 
-    initNavbar(usuario, authService);
-    adaptarVistaPorPermisos(doc);
+    adaptarVistaPorPermisos();
     inicializarTabla();
-    configurarEventos(doc);
-    await listarOrdenes(doc);
+    configurarEventos();
+    await listarOrdenes();
 }
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('DOMContentLoaded', async () => {
-        if (
-            document.body?.getAttribute?.('data-auth-blocked') ||
-            !authService.isAuthenticated()
-        ) {
+        if (document.body?.getAttribute?.('data-auth-blocked') || !authModel.isAuthenticated()) {
             return;
         }
-        await initOrdersController(document);
+        await initOrdersController();
     });
 }

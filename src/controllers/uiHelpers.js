@@ -1,15 +1,30 @@
-import { escapeHtml } from './securityUtils.js';
-import { extractProblemMessage } from '../api/httpClient.js';
+import { extractProblemMessage } from '../models/apiClient.js';
 
-export { escapeHtml, extractProblemMessage };
+export { extractProblemMessage };
 
-export function getDoc(customDoc = null) {
-    if (customDoc) return customDoc;
-    return typeof document !== 'undefined' ? document : null;
+const DT_LANGUAGE_URL = 'https://cdn.datatables.net/plug-ins/2.1.8/i18n/es-MX.json';
+
+// Escapa caracteres HTML especiales (&, <, >, ", ') antes de interpolar en cadenas HTML
+export function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
-// Traducción oficial de DataTables al español
-const DT_LANGUAGE_URL = 'https://cdn.datatables.net/plug-ins/2.1.8/i18n/es-MX.json';
+// Confirmación centralizada de acciones sensibles en navegador
+export function confirmAction(message) {
+    if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        return Boolean(window.confirm(message));
+    }
+    if (typeof globalThis !== 'undefined' && typeof globalThis.confirm === 'function') {
+        return Boolean(globalThis.confirm(message));
+    }
+    return false;
+}
 
 // Renderizador seguro para columnas de texto en DataTables (DataTable.render.text() + respaldo escapeHtml)
 export function safeTextRender(fallback = '-') {
@@ -92,21 +107,18 @@ export function baseTableOptions(extra = {}) {
 }
 
 // Obtiene las banderas de permisos de UI del usuario conectado (provenientes del backend)
-export function resolveConnectedPermissions(usuario, authService) {
+export function resolveConnectedPermissions(usuario, authModel) {
     if (usuario?.permissions && typeof usuario.permissions === 'object') {
         return usuario.permissions;
     }
-    if (typeof authService?.getPermissions === 'function') {
-        return authService.getPermissions();
+    if (typeof authModel?.getPermissions === 'function') {
+        return authModel.getPermissions();
     }
     return {};
 }
 
 export function clearTbody(tbody) {
     if (!tbody) return;
-    if (Array.isArray(tbody.children)) {
-        tbody.children.length = 0;
-    }
     tbody.textContent = '';
 }
 
@@ -144,7 +156,6 @@ export function showModal(modalEl) {
     return null;
 }
 
-// Oculta un modal Bootstrap 5 o su respaldo visual directo
 function hideModal(modalEl) {
     if (!modalEl) return;
     if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
@@ -262,23 +273,21 @@ function renderFlashErrorBanner() {
 }
 
 // Inicializa el navbar dinámicamente según las capacidades de UI devueltas por el backend (sin exponer roles)
-export function initNavbar(usuario, authService) {
+function initNavbar(usuario, authModel) {
     if (typeof document === 'undefined') return;
 
-    const currentUser = authService?.getCurrentUser?.() || usuario || null;
-    const username = currentUser?.username || currentUser?.nombre || usuario?.username || usuario?.nombre || 'Usuario';
-    const perms = resolveConnectedPermissions(currentUser || usuario, authService);
+    const currentUser = authModel?.getCurrentUser?.() || usuario || null;
+    const username = currentUser?.username || usuario?.username || 'Usuario';
+    const perms = resolveConnectedPermissions(currentUser || usuario, authModel);
     const canViewProductsAdmin = Boolean(perms.canViewProductsAdmin);
     const canViewCustomers = Boolean(perms.canViewCustomers);
-    const defaultView = currentUser?.defaultView || authService?.getDefaultView?.() || './catalogo.html';
+    const defaultView = currentUser?.defaultView || authModel?.getDefaultView?.() || './catalogo.html';
 
-    // 1. Mostrar nombre de usuario con textContent (sin badge de rol)
     const lblUsuario = document.getElementById('lblUsuario');
     if (lblUsuario) {
         lblUsuario.textContent = username;
     }
 
-    // 2. Adaptar visibilidad de enlaces del menú de navegación según capacidades de UI
     const navLinks = typeof document.querySelectorAll === 'function'
         ? Array.from(document.querySelectorAll('a[href]'))
         : [];
@@ -294,7 +303,7 @@ export function initNavbar(usuario, authService) {
 
         const isProductsLink = href.includes('productos.html');
         const isCustomersLink = href.includes('clientes.html');
-        const isSharedLink = href.includes('catalogo.html') || href.includes('pedidos.html') || href.includes('ordenes.html');
+        const isSharedLink = href.includes('catalogo.html') || href.includes('pedidos.html');
 
         if (isProductsLink) {
             setElementVisibility(link, canViewProductsAdmin);
@@ -311,7 +320,6 @@ export function initNavbar(usuario, authService) {
         }
     }
 
-    // Soporte adicional por IDs de elementos de navegación si existen en la vista
     for (const id of ['navProductos', 'navItemProductos']) {
         const el = document.getElementById(id);
         if (el) setElementVisibility(el, canViewProductsAdmin);
@@ -320,27 +328,53 @@ export function initNavbar(usuario, authService) {
         const el = document.getElementById(id);
         if (el) setElementVisibility(el, canViewCustomers);
     }
-    for (const id of ['navCatalogo', 'navItemCatalogo', 'navPedidos', 'navItemPedidos', 'navOrdenes', 'navItemOrdenes']) {
+    for (const id of ['navCatalogo', 'navItemCatalogo', 'navPedidos', 'navItemPedidos']) {
         const el = document.getElementById(id);
         if (el) setElementVisibility(el, true);
     }
 
-    // 3. Botón de cerrar sesión con confirmación rápida
     const btnLogout = document.getElementById('btnLogout');
-    if (btnLogout && authService) {
+    if (btnLogout && authModel) {
         btnLogout.onclick = (e) => {
             if (e && typeof e.preventDefault === 'function') e.preventDefault();
-            const confirmFn = (typeof window !== 'undefined' && typeof window.confirm === 'function')
-                ? window.confirm.bind(window)
-                : (typeof confirm === 'function' ? confirm : null);
-            if (confirmFn) {
-                const confirmado = confirmFn('¿Deseas cerrar tu sesión activa?');
-                if (confirmado === false) return;
-            }
-            authService.logout();
+            if (!confirmAction('¿Deseas cerrar tu sesión activa?')) return;
+            authModel.logout();
         };
     }
 
-    // 4. Mostrar alerta 403 si hubo redirección por permisos insuficientes
     renderFlashErrorBanner();
+}
+
+// Arranque común de vistas autenticadas: refresca perfil, verifica permisos, inicializa navbar y banner 403
+export async function initAuthenticatedView({ authModel, requiredPermission = null } = {}) {
+    if (typeof document === 'undefined' || !authModel) return null;
+
+    if (!authModel.isAuthenticated()) {
+        return null;
+    }
+    if (requiredPermission && !authModel.hasPermission(requiredPermission)) {
+        return null;
+    }
+
+    const usuario = (await authModel.refreshProfile()) || authModel.getCurrentUser();
+    if (!usuario) {
+        if (
+            typeof window !== 'undefined' &&
+            window.location &&
+            !String(window.location.href || '').includes('login.html')
+        ) {
+            window.location.href = './login.html';
+        }
+        return null;
+    }
+
+    if (requiredPermission && !authModel.hasPermission(requiredPermission)) {
+        if (typeof window !== 'undefined' && window.location) {
+            window.location.href = './catalogo.html?error=403';
+        }
+        return null;
+    }
+
+    initNavbar(usuario, authModel);
+    return usuario;
 }

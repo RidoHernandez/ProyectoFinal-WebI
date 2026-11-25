@@ -1,24 +1,18 @@
-import { authGuard } from "../utils/authGuard.js";
-import { authService } from "../services/authService.js";
-import { productService } from "../services/productService.js";
-import { ProductModel, validateProduct } from "../models/productModel.js";
+import { authGuard, authModel } from "../models/authModel.js";
+import { productModel, validateProduct } from "../models/productModel.js";
 import {
     baseTableOptions,
-    clearTbody,
+    confirmAction,
     escapeHtml,
     extractProblemMessage,
-    formatCurrency,
-    getDoc,
-    initNavbar,
+    initAuthenticatedView,
     resolveConnectedPermissions,
     safeTextRender,
     setElementVisibility
-} from "../utils/tableHelpers.js";
+} from "./uiHelpers.js";
 
-// Guardia de navegación síncrona como primera instrucción ejecutable
 authGuard('canViewProductsAdmin');
 
-// Mensaje exacto requerido para conflicto HTTP 409 en eliminación física (TASK-F3-05 / REQ-BIZ-001)
 const CONFLICT_409_MESSAGE =
     'No se puede eliminar fisicamente el producto porque tiene ordenes historicas vinculadas. Se ha mantenido en el registro para preservar la integridad historica.';
 
@@ -41,11 +35,9 @@ let permisosActuales = {
     canDiscontinueProducts: false
 };
 
-// Renderiza sólo en modo 'display'; para ordenar/buscar se usa el valor crudo
-const display = (fn) => (data, type, row) => type === 'display' ? fn(data, row) : data;
+const display = (fn) => (data, type, row) => (type === 'display' ? fn(data, row) : data);
 
-function normalizarPermisosProductos(permisos = permisosActuales) {
-    const src = permisos && typeof permisos === 'object' ? permisos : {};
+function normalizarPermisosProductos(src = {}) {
     return {
         canViewProductsAdmin: Boolean(src.canViewProductsAdmin),
         canCreateProducts: Boolean(src.canCreateProducts),
@@ -56,608 +48,236 @@ function normalizarPermisosProductos(permisos = permisosActuales) {
     };
 }
 
-// Genera los botones de acción de cada fila según las capacidades de UI autorizadas por el backend
-function renderAccionesProducto(row, permisos = permisosActuales) {
-    const idSeguro = escapeHtml(row?.productId ?? row?.ProductId ?? '');
-    const p = normalizarPermisosProductos(permisos);
-    const yaDescontinuado = Boolean(row?.discontinued ?? row?.Discontinued);
+function setProductsTableMessage(message) {
+    const tbody = document.getElementById('tbodyProductos');
+    if (!tbody) return;
+    tbody.textContent = '';
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 6;
+    td.className = 'text-center text-muted py-3';
+    td.textContent = message;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+}
 
+function renderAccionesProducto(row, p = permisosActuales) {
+    const idSeguro = escapeHtml(row?.productId ?? '');
+    const yaDescontinuado = Boolean(row?.discontinued);
     const botones = [];
+
     if (p.canEditProductPricingStock || p.canEditProductDetails) {
-        const hasMore = p.canDiscontinueProducts || p.canDeleteProducts;
-        botones.push(
-            `<button type="button" class="btn btn-sm btn-outline-primary${hasMore ? ' me-1' : ''}" data-action="editar" data-id="${idSeguro}">Editar</button>`
-        );
+        const space = (p.canDiscontinueProducts || p.canDeleteProducts) ? ' me-1' : '';
+        botones.push(`<button type="button" class="btn btn-sm btn-outline-primary${space}" data-action="editar" data-id="${idSeguro}">Editar</button>`);
     }
-
     if (p.canDiscontinueProducts) {
-        botones.push(
-            `<button type="button" class="btn btn-sm ${yaDescontinuado ? 'btn-secondary' : 'btn-outline-warning'}${p.canDeleteProducts ? ' me-1' : ''}" data-action="descontinuar" data-id="${idSeguro}"${yaDescontinuado ? ' disabled' : ''}>${yaDescontinuado ? 'Descontinuado' : 'Descontinuar'}</button>`
-        );
+        const cls = yaDescontinuado ? 'btn-secondary' : 'btn-outline-warning';
+        const space = p.canDeleteProducts ? ' me-1' : '';
+        botones.push(`<button type="button" class="btn btn-sm ${cls}${space}" data-action="descontinuar" data-id="${idSeguro}"${yaDescontinuado ? ' disabled' : ''}>${yaDescontinuado ? 'Descontinuado' : 'Descontinuar'}</button>`);
     }
-
     if (p.canDeleteProducts) {
-        botones.push(
-            `<button type="button" class="btn btn-sm btn-outline-danger" data-action="eliminar" data-id="${idSeguro}">Eliminar</button>`
-        );
+        botones.push(`<button type="button" class="btn btn-sm btn-outline-danger" data-action="eliminar" data-id="${idSeguro}">Eliminar</button>`);
     }
-
     return botones.join('');
 }
 
-// Adapta dinámicamente los controles de la vista y del modal según las capacidades de UI autorizadas por el backend
 function aplicarPermisosProductos(permisos = permisosActuales) {
     permisosActuales = normalizarPermisosProductos(permisos);
-    const puedeCrear = permisosActuales.canCreateProducts;
-    const puedeEditarDetalles = permisosActuales.canEditProductDetails;
-    const puedeEditarStockPrecio = permisosActuales.canEditProductPricingStock || puedeEditarDetalles;
-    const puedeEliminar = permisosActuales.canDeleteProducts;
-    const puedeDescontinuar = permisosActuales.canDiscontinueProducts;
+    const { canCreateProducts, canEditProductDetails, canEditProductPricingStock, canDeleteProducts, canDiscontinueProducts } = permisosActuales;
+    const puedeEditarPrecioStock = canEditProductPricingStock || canEditProductDetails;
 
-    const doc = getDoc();
-    if (!doc) return;
+    setElementVisibility(document.getElementById('btnNuevoProducto'), canCreateProducts);
+    document.querySelectorAll('button[data-action="eliminar"]').forEach((b) => setElementVisibility(b, canDeleteProducts));
+    document.querySelectorAll('button[data-action="descontinuar"]').forEach((b) => setElementVisibility(b, canDiscontinueProducts));
 
-    const btnNuevo = doc.getElementById('btnNuevoProducto');
-    if (btnNuevo) {
-        setElementVisibility(btnNuevo, puedeCrear);
-    }
-
-    if (typeof doc.querySelectorAll === 'function') {
-        const botonesEliminar = Array.from(doc.querySelectorAll('button[data-action="eliminar"]') || []);
-        for (const btn of botonesEliminar) {
-            setElementVisibility(btn, puedeEliminar);
-        }
-
-        const botonesDescontinuar = Array.from(doc.querySelectorAll('button[data-action="descontinuar"]') || []);
-        for (const btn of botonesDescontinuar) {
-            setElementVisibility(btn, puedeDescontinuar);
-        }
-    }
-
-    // Soporte adicional para entornos de prueba con doc.allElements
-    if (Array.isArray(doc.allElements)) {
-        for (const el of doc.allElements) {
-            if (!el || el.tagName !== 'BUTTON') continue;
-            const action = el.dataset?.action || el.getAttribute?.('data-action');
-            if (action === 'eliminar') {
-                setElementVisibility(el, puedeEliminar);
-            } else if (action === 'descontinuar') {
-                setElementVisibility(el, puedeDescontinuar);
-            }
-        }
-    }
-
-    // Restricción de campos en el modal según capacidades autorizadas
-    const prodName = doc.getElementById('prodName');
-    const prodDiscontinued = doc.getElementById('prodDiscontinued');
-    const prodPrice = doc.getElementById('prodPrice');
-    const prodStock = doc.getElementById('prodStock');
+    const prodName = document.getElementById('prodName');
+    const prodDiscontinued = document.getElementById('prodDiscontinued');
+    const prodPrice = document.getElementById('prodPrice');
+    const prodStock = document.getElementById('prodStock');
 
     if (prodName) {
-        prodName.disabled = !puedeEditarDetalles;
-        prodName.readOnly = !puedeEditarDetalles;
-        if (!puedeEditarDetalles) {
-            prodName.setAttribute?.('readonly', 'true');
-            prodName.setAttribute?.('disabled', 'true');
-        } else {
-            prodName.removeAttribute?.('readonly');
-            prodName.removeAttribute?.('disabled');
-        }
+        prodName.disabled = !canEditProductDetails;
+        prodName.readOnly = !canEditProductDetails;
     }
-
-    if (prodDiscontinued) {
-        prodDiscontinued.disabled = !puedeEditarDetalles;
-        if (!puedeEditarDetalles) {
-            prodDiscontinued.setAttribute?.('disabled', 'true');
-        } else {
-            prodDiscontinued.removeAttribute?.('disabled');
-        }
-    }
-
+    if (prodDiscontinued) prodDiscontinued.disabled = !canEditProductDetails;
     if (prodPrice) {
-        prodPrice.disabled = !puedeEditarStockPrecio;
-        prodPrice.readOnly = !puedeEditarStockPrecio;
+        prodPrice.disabled = !puedeEditarPrecioStock;
+        prodPrice.readOnly = !puedeEditarPrecioStock;
     }
-
     if (prodStock) {
-        prodStock.disabled = !puedeEditarStockPrecio;
-        prodStock.readOnly = !puedeEditarStockPrecio;
+        prodStock.disabled = !puedeEditarPrecioStock;
+        prodStock.readOnly = !puedeEditarPrecioStock;
     }
 }
 
-// Limpia todos los estados de validación del formulario modal (TASK-F3-04)
-function limpiarValidacionModal(customDoc = null) {
-    const doc = getDoc(customDoc);
-    if (!doc) return;
-
-    const form = doc.getElementById('formProducto');
-    if (form) {
-        form.classList?.remove('was-validated');
-    }
-
-    const fieldIds = ['prodName', 'prodPrice', 'prodStock', 'prodDiscontinued'];
-    for (const id of fieldIds) {
-        const input = doc.getElementById(id);
-        if (input) {
-            input.classList?.remove('is-invalid', 'is-valid');
-            input.removeAttribute?.('aria-invalid');
+function limpiarValidacionModal() {
+    document.getElementById('formProducto')?.classList.remove('was-validated');
+    ['prodName', 'prodPrice', 'prodStock', 'prodDiscontinued'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.classList.remove('is-invalid', 'is-valid');
+            el.removeAttribute('aria-invalid');
         }
+    });
+    for (const [id, text] of Object.entries(DEFAULT_FEEDBACK_MESSAGES)) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
     }
-
-    for (const [feedbackId, defaultText] of Object.entries(DEFAULT_FEEDBACK_MESSAGES)) {
-        const feedbackEl = doc.getElementById(feedbackId);
-        if (feedbackEl) {
-            feedbackEl.textContent = defaultText;
-        }
-    }
-
-    const alertModal = doc.getElementById('alertModalProducto');
+    const alertModal = document.getElementById('alertModalProducto');
     if (alertModal) {
         alertModal.textContent = '';
         setElementVisibility(alertModal, false);
     }
 }
 
-// Muestra notificación Toast no bloqueante para operaciones de productos (TASK-F3-04 / TASK-F3-05)
 function mostrarToastProducto(mensaje, tipo = 'success') {
-    const doc = getDoc();
-    const textoSeguro = String(mensaje || '');
-    if (!doc) return null;
+    const toastEl = document.getElementById('toastProducto');
+    const bodyEl = document.getElementById('toastProductoMensaje');
+    if (!toastEl || !bodyEl) return;
 
-    let container = doc.getElementById('toastContainerProductos');
-    if (!container && doc.body) {
-        container = doc.createElement('div');
-        container.id = 'toastContainerProductos';
-        container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
-        doc.body.appendChild(container);
-    }
-
-    let toastEl = doc.getElementById('toastProducto');
-    if (!toastEl) {
-        toastEl = doc.createElement('div');
-        toastEl.id = 'toastProducto';
-        toastEl.setAttribute('role', 'status');
-        if (container) {
-            container.appendChild(toastEl);
-        } else if (doc.body) {
-            doc.body.appendChild(toastEl);
-        }
-    }
-
-    let bodyEl = doc.getElementById('toastProductoMensaje');
-    if (!bodyEl) {
-        bodyEl = doc.createElement('div');
-        bodyEl.id = 'toastProductoMensaje';
-        bodyEl.className = 'toast-body fw-semibold';
-        toastEl.appendChild(bodyEl);
-    }
-
-    const colorClass = tipo === 'danger' || tipo === 'error'
-        ? 'text-bg-danger'
-        : (tipo === 'warning' ? 'text-bg-warning' : 'text-bg-success');
-
+    const colorClass = tipo === 'danger' ? 'text-bg-danger' : (tipo === 'warning' ? 'text-bg-warning' : 'text-bg-success');
     toastEl.className = `toast align-items-center ${colorClass} border-0 show`;
-    toastEl.dataset.tipo = tipo;
-    bodyEl.textContent = textoSeguro;
-
+    bodyEl.textContent = String(mensaje || '');
     setElementVisibility(toastEl, true);
 
     if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
-        try {
-            const toastInstance = bootstrap.Toast.getOrCreateInstance
-                ? bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 3500 })
-                : new bootstrap.Toast(toastEl, { delay: 3500 });
-            toastInstance.show();
-        } catch {
-            // Fallback visual directo ya aplicado
-        }
-    }
-
-    return toastEl;
-}
-
-// Renderiza filas en #tbodyProductos cuando DataTables no está cargado (entornos DOM / pruebas unitarias)
-function renderizarTablaFallback(lista = productosCache, permisos = permisosActuales) {
-    const doc = getDoc();
-    if (!doc) return;
-
-    const tbody = doc.getElementById('tbodyProductos');
-    if (!tbody) return;
-
-    const items = Array.isArray(lista) ? lista : [];
-    const p = normalizarPermisosProductos(permisos);
-    clearTbody(tbody);
-
-    if (typeof doc.createElement !== 'function') return;
-
-    for (const prod of items) {
-        const id = prod?.productId ?? prod?.ProductId ?? '';
-        const name = prod?.productName ?? prod?.ProductName ?? '';
-        const price = prod?.unitPrice ?? prod?.UnitPrice ?? 0;
-        const stock = prod?.unitsInStock ?? prod?.UnitsInStock ?? 0;
-        const disc = Boolean(prod?.discontinued ?? prod?.Discontinued);
-
-        const tr = doc.createElement('tr');
-        if (tr.dataset) {
-            tr.dataset.productId = String(id);
-        }
-        tr.setAttribute?.('data-product-id', String(id));
-
-        const tdId = doc.createElement('td');
-        const strongId = doc.createElement('strong');
-        strongId.textContent = String(id);
-        tdId.appendChild(strongId);
-
-        const tdName = doc.createElement('td');
-        tdName.textContent = String(name);
-
-        const tdPrice = doc.createElement('td');
-        tdPrice.textContent = formatCurrency(price);
-
-        const tdStock = doc.createElement('td');
-        tdStock.textContent = String(stock);
-
-        const tdStatus = doc.createElement('td');
-        const spanBadge = doc.createElement('span');
-        spanBadge.className = disc ? 'badge bg-danger' : 'badge bg-success';
-        spanBadge.textContent = disc ? 'Descontinuado' : 'Activo';
-        tdStatus.appendChild(spanBadge);
-
-        const tdActions = doc.createElement('td');
-        tdActions.className = 'text-center text-nowrap';
-
-        if (p.canEditProductPricingStock || p.canEditProductDetails) {
-            const hasMore = p.canDiscontinueProducts || p.canDeleteProducts;
-            const btnEditar = doc.createElement('button');
-            btnEditar.type = 'button';
-            btnEditar.className = `btn btn-sm btn-outline-primary${hasMore ? ' me-1' : ''}`;
-            btnEditar.setAttribute('data-action', 'editar');
-            btnEditar.setAttribute('data-id', String(id));
-            btnEditar.textContent = 'Editar';
-            tdActions.appendChild(btnEditar);
-        }
-
-        if (p.canDiscontinueProducts) {
-            const btnDescontinuar = doc.createElement('button');
-            btnDescontinuar.type = 'button';
-            btnDescontinuar.className = `btn btn-sm ${disc ? 'btn-secondary' : 'btn-outline-warning'}${p.canDeleteProducts ? ' me-1' : ''}`;
-            btnDescontinuar.setAttribute('data-action', 'descontinuar');
-            btnDescontinuar.setAttribute('data-id', String(id));
-            if (disc) {
-                btnDescontinuar.disabled = true;
-                btnDescontinuar.setAttribute('disabled', 'disabled');
-            }
-            btnDescontinuar.textContent = disc ? 'Descontinuado' : 'Descontinuar';
-            tdActions.appendChild(btnDescontinuar);
-        }
-
-        if (p.canDeleteProducts) {
-            const btnEliminar = doc.createElement('button');
-            btnEliminar.type = 'button';
-            btnEliminar.className = 'btn btn-sm btn-outline-danger';
-            btnEliminar.setAttribute('data-action', 'eliminar');
-            btnEliminar.setAttribute('data-id', String(id));
-            btnEliminar.textContent = 'Eliminar';
-            tdActions.appendChild(btnEliminar);
-        }
-
-        tr.appendChild(tdId);
-        tr.appendChild(tdName);
-        tr.appendChild(tdPrice);
-        tr.appendChild(tdStock);
-        tr.appendChild(tdStatus);
-        tr.appendChild(tdActions);
-
-        tbody.appendChild(tr);
+        bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 3500 }).show();
     }
 }
 
 async function listarProductos() {
-    const doc = getDoc();
     try {
-        const resultado = await productService.getAll();
-
-        productosCache = Array.isArray(resultado)
-            ? resultado
-            : (Array.isArray(resultado?.products) ? resultado.products : []);
-
-        const total = resultado?.totalProducts ?? productosCache.length;
-        const lblTotal = doc?.getElementById('lblTotalProductos');
-        if (lblTotal) {
-            lblTotal.textContent = String(total);
-        }
+        productosCache = await productModel.getAll();
+        const lblTotal = document.getElementById('lblTotalProductos');
+        if (lblTotal) lblTotal.textContent = String(productosCache.length);
 
         if (tabla) {
             tabla.clear().rows.add(productosCache).draw();
-        } else {
-            renderizarTablaFallback(productosCache, permisosActuales);
+        } else if (productosCache.length === 0) {
+            setProductsTableMessage('No se encontraron productos.');
         }
 
         aplicarPermisosProductos(permisosActuales);
-        return productosCache;
     } catch (err) {
-        if (tabla) {
-            tabla.clear().draw();
-        } else {
-            renderizarTablaFallback([], permisosActuales);
-        }
-        mostrarToastProducto(`Error al listar productos: ${err?.message || 'Error desconocido'}`, 'danger');
-        return [];
+        if (tabla) tabla.clear().draw();
+        else setProductsTableMessage('No se pudieron cargar los productos.');
+        mostrarToastProducto(`Error al listar productos: ${extractProblemMessage(err, 'Error desconocido')}`, 'danger');
     }
 }
 
 function abrirModalNuevoProducto() {
-    if (!permisosActuales.canCreateProducts) return false;
-    const doc = getDoc();
-    if (!doc) return false;
-
-    const form = doc.getElementById('formProducto');
-    if (form && typeof form.reset === 'function') {
-        form.reset();
-    }
-
-    limpiarValidacionModal(doc);
-
-    const prodId = doc.getElementById('prodId');
-    const prodName = doc.getElementById('prodName');
-    const prodPrice = doc.getElementById('prodPrice');
-    const prodStock = doc.getElementById('prodStock');
-    const prodDiscontinued = doc.getElementById('prodDiscontinued');
-    const modalTitulo = doc.getElementById('modalTitulo');
-
-    if (prodId) prodId.value = '';
-    if (prodName) prodName.value = '';
-    if (prodPrice) prodPrice.value = '';
-    if (prodStock) prodStock.value = '';
-    if (prodDiscontinued) prodDiscontinued.checked = false;
-    if (modalTitulo) modalTitulo.textContent = 'Nuevo Producto';
-
+    if (!permisosActuales.canCreateProducts) return;
+    document.getElementById('formProducto')?.reset();
+    limpiarValidacionModal();
+    document.getElementById('prodId').value = '';
+    document.getElementById('modalTitulo').textContent = 'Nuevo Producto';
     aplicarPermisosProductos(permisosActuales);
     modalInstancia?.show();
-    return true;
 }
 
 function editarProducto(id) {
-    const numericId = Number(id);
-    const prod = productosCache.find((p) => Number(p?.productId ?? p?.ProductId) === numericId);
-    if (!prod) return null;
+    const prod = productosCache.find((p) => Number(p.productId) === Number(id));
+    if (!prod) return;
 
-    const doc = getDoc();
-    if (!doc) return prod;
-
-    limpiarValidacionModal(doc);
-
-    const prodId = doc.getElementById('prodId');
-    const prodName = doc.getElementById('prodName');
-    const prodPrice = doc.getElementById('prodPrice');
-    const prodStock = doc.getElementById('prodStock');
-    const prodDiscontinued = doc.getElementById('prodDiscontinued');
-    const modalTitulo = doc.getElementById('modalTitulo');
-
-    const resolvedId = prod.productId ?? prod.ProductId;
-    const resolvedName = prod.productName ?? prod.ProductName ?? '';
-    const resolvedPrice = prod.unitPrice ?? prod.UnitPrice ?? '';
-    const resolvedStock = prod.unitsInStock ?? prod.UnitsInStock ?? 0;
-    const resolvedDisc = Boolean(prod.discontinued ?? prod.Discontinued);
-
-    if (prodId) prodId.value = String(resolvedId);
-    if (prodName) prodName.value = resolvedName;
-    if (prodPrice) prodPrice.value = resolvedPrice;
-    if (prodStock) prodStock.value = resolvedStock;
-    if (prodDiscontinued) prodDiscontinued.checked = resolvedDisc;
-    if (modalTitulo) modalTitulo.textContent = `Editar Producto #${resolvedId}`;
-
+    limpiarValidacionModal();
+    document.getElementById('prodId').value = String(prod.productId);
+    document.getElementById('prodName').value = prod.productName;
+    document.getElementById('prodPrice').value = prod.unitPrice;
+    document.getElementById('prodStock').value = prod.unitsInStock;
+    document.getElementById('prodDiscontinued').checked = Boolean(prod.discontinued);
+    document.getElementById('modalTitulo').textContent = `Editar Producto #${prod.productId}`;
     aplicarPermisosProductos(permisosActuales);
     modalInstancia?.show();
-    return prod;
 }
 
 function setFieldInvalidState(inputEl, feedbackEl, message) {
     if (inputEl) {
-        inputEl.classList?.remove('is-valid');
-        inputEl.classList?.add('is-invalid');
-        inputEl.setAttribute?.('aria-invalid', 'true');
+        inputEl.classList.remove('is-valid');
+        inputEl.classList.add('is-invalid');
+        inputEl.setAttribute('aria-invalid', 'true');
     }
-    if (feedbackEl && message) {
-        feedbackEl.textContent = message;
-    }
+    if (feedbackEl && message) feedbackEl.textContent = message;
 }
 
-// Procesa el alta o edición del producto desde el modal unificado (TASK-F3-04)
-async function guardarProductoModal(eventOrData = null) {
-    if (eventOrData && typeof eventOrData.preventDefault === 'function') {
-        eventOrData.preventDefault();
-    }
+async function guardarProductoModal(event) {
+    event?.preventDefault?.();
+    limpiarValidacionModal();
 
-    const doc = getDoc();
-    limpiarValidacionModal(doc);
+    const prodIdEl = document.getElementById('prodId');
+    const prodNameEl = document.getElementById('prodName');
+    const prodPriceEl = document.getElementById('prodPrice');
+    const prodStockEl = document.getElementById('prodStock');
+    const prodDiscontinuedEl = document.getElementById('prodDiscontinued');
+    const alertModalEl = document.getElementById('alertModalProducto');
+    const btnGuardar = document.getElementById('btnGuardar');
 
-    const isDirectData = Boolean(
-        eventOrData &&
-        typeof eventOrData === 'object' &&
-        typeof eventOrData.preventDefault !== 'function'
-    );
-
-    const form = doc?.getElementById('formProducto');
-    const prodIdEl = doc?.getElementById('prodId');
-    const prodNameEl = doc?.getElementById('prodName');
-    const prodPriceEl = doc?.getElementById('prodPrice');
-    const prodStockEl = doc?.getElementById('prodStock');
-    const prodDiscontinuedEl = doc?.getElementById('prodDiscontinued');
-    const feedbackNameEl = doc?.getElementById('feedbackProdName');
-    const feedbackPriceEl = doc?.getElementById('feedbackProdPrice');
-    const feedbackStockEl = doc?.getElementById('feedbackProdStock');
-    const alertModalEl = doc?.getElementById('alertModalProducto');
-    const btnGuardar = doc?.getElementById('btnGuardar');
-
-    const rawId = isDirectData && eventOrData.productId !== undefined
-        ? eventOrData.productId
-        : (prodIdEl ? prodIdEl.value : '');
-    const idStr = String(rawId ?? '').trim();
-    const esEdicion = Boolean(idStr !== '');
+    const idStr = String(prodIdEl?.value ?? '').trim();
+    const esEdicion = idStr !== '';
     const numericId = esEdicion ? Number(idStr) : null;
 
     if (!esEdicion && !permisosActuales.canCreateProducts) {
-        const msg = 'Operación no permitida: No tienes permisos para crear nuevos productos.';
-        if (alertModalEl) {
-            alertModalEl.textContent = msg;
-            setElementVisibility(alertModalEl, true);
-        }
-        return { ok: false, status: 403, message: msg };
+        alertModalEl.textContent = 'Operación no permitida: No tienes permisos para crear nuevos productos.';
+        setElementVisibility(alertModalEl, true);
+        return;
     }
 
-    let rawName = isDirectData && eventOrData.productName !== undefined
-        ? eventOrData.productName
-        : (prodNameEl ? prodNameEl.value : '');
-    const rawPrice = isDirectData && eventOrData.unitPrice !== undefined
-        ? eventOrData.unitPrice
-        : (prodPriceEl ? prodPriceEl.value : '');
-    const rawStock = isDirectData && eventOrData.unitsInStock !== undefined
-        ? eventOrData.unitsInStock
-        : (prodStockEl ? prodStockEl.value : '');
-    let rawDiscontinued = isDirectData && eventOrData.discontinued !== undefined
-        ? eventOrData.discontinued
-        : (prodDiscontinuedEl ? Boolean(prodDiscontinuedEl.checked) : false);
+    let productName = prodNameEl.value.trim();
+    let discontinued = Boolean(prodDiscontinuedEl.checked);
 
-    // Si no tiene permiso para editar detalles, preservar el nombre y estado descontinuado originales del producto
+    // Si es EMPLEADO (sin permiso de editar detalles), preservar nombre y estado originales
     if (esEdicion && !permisosActuales.canEditProductDetails) {
-        const prodOriginal = productosCache.find((p) => Number(p?.productId ?? p?.ProductId) === numericId);
-        if (prodOriginal) {
-            rawName = prodOriginal.productName ?? prodOriginal.ProductName ?? rawName;
-            rawDiscontinued = Boolean(prodOriginal.discontinued ?? prodOriginal.Discontinued);
-            if (prodNameEl) prodNameEl.value = rawName;
-            if (prodDiscontinuedEl) prodDiscontinuedEl.checked = rawDiscontinued;
+        const original = productosCache.find((p) => Number(p.productId) === numericId);
+        if (original) {
+            productName = original.productName;
+            discontinued = Boolean(original.discontinued);
+            prodNameEl.value = productName;
+            prodDiscontinuedEl.checked = discontinued;
         }
     }
 
-    const dtoForValidation = {
-        productName: typeof rawName === 'string' ? rawName.trim() : String(rawName ?? '').trim(),
-        unitPrice: (rawPrice === '' || rawPrice === null || rawPrice === undefined) ? null : Number(rawPrice),
-        unitsInStock: (rawStock === '' || rawStock === null || rawStock === undefined) ? null : Number(rawStock),
-        discontinued: typeof rawDiscontinued === 'boolean' ? rawDiscontinued : Boolean(rawDiscontinued)
+    const dto = {
+        productName,
+        unitPrice: prodPriceEl.value === '' ? null : Number(prodPriceEl.value),
+        unitsInStock: prodStockEl.value === '' ? null : Number(prodStockEl.value),
+        discontinued
     };
 
-    const validationErrors = validateProduct(dtoForValidation, {
+    const validation = validateProduct(dto, {
         existingProducts: productosCache,
-        excludeProductId: esEdicion ? numericId : null
+        excludeProductId: numericId
     });
 
-    if (!validationErrors.valid || validationErrors.length > 0) {
-        const fe = validationErrors.fieldErrors || {};
-        if (fe.productName) {
-            setFieldInvalidState(prodNameEl, feedbackNameEl, fe.productName);
-        }
-        if (fe.unitPrice) {
-            setFieldInvalidState(prodPriceEl, feedbackPriceEl, fe.unitPrice);
-        }
-        if (fe.unitsInStock) {
-            setFieldInvalidState(prodStockEl, feedbackStockEl, fe.unitsInStock);
-        }
-        if (fe.discontinued && prodDiscontinuedEl) {
-            prodDiscontinuedEl.classList?.add('is-invalid');
-        }
-
-        if (form) {
-            form.classList?.add('was-validated');
-        }
-
-        const mainErrorMsg = validationErrors[0] || 'Verifica los datos ingresados en el formulario.';
-        if (alertModalEl) {
-            alertModalEl.textContent = mainErrorMsg;
-            setElementVisibility(alertModalEl, true);
-        }
-
-        return {
-            ok: false,
-            valid: false,
-            errors: Array.from(validationErrors),
-            fieldErrors: fe
-        };
+    if (!validation.valid) {
+        const { fieldErrors, errors } = validation;
+        if (fieldErrors.productName) setFieldInvalidState(prodNameEl, document.getElementById('feedbackProdName'), fieldErrors.productName);
+        if (fieldErrors.unitPrice) setFieldInvalidState(prodPriceEl, document.getElementById('feedbackProdPrice'), fieldErrors.unitPrice);
+        if (fieldErrors.unitsInStock) setFieldInvalidState(prodStockEl, document.getElementById('feedbackProdStock'), fieldErrors.unitsInStock);
+        document.getElementById('formProducto')?.classList.add('was-validated');
+        alertModalEl.textContent = errors[0] || 'Verifica los datos ingresados en el formulario.';
+        setElementVisibility(alertModalEl, true);
+        return;
     }
 
-    const payload = ProductModel.createPayload({
-        productId: esEdicion ? numericId : null,
-        productName: dtoForValidation.productName,
-        unitPrice: dtoForValidation.unitPrice,
-        unitsInStock: dtoForValidation.unitsInStock,
-        discontinued: dtoForValidation.discontinued
-    });
-
+    const payload = { productId: numericId, ...dto };
     if (btnGuardar) {
         btnGuardar.disabled = true;
         btnGuardar.textContent = 'Guardando...';
     }
 
     try {
-        const resp = esEdicion
-            ? await productService.update(numericId, payload)
-            : await productService.create(payload);
-
-        if (resp && resp.ok === false) {
-            const status = Number(resp.status || resp.problemDetails?.status) || 400;
-            const errObj = new Error(extractProblemMessage(resp, 'Error al guardar el producto.'));
-            errObj.status = status;
-            errObj.problemDetails = resp.problemDetails || resp.data || { status, detail: errObj.message };
-            throw errObj;
+        if (esEdicion) {
+            await productModel.update(numericId, payload);
+        } else {
+            await productModel.create(payload);
         }
-
         modalInstancia?.hide();
-        limpiarValidacionModal(doc);
+        limpiarValidacionModal();
         await listarProductos();
-
-        const toastMsg = esEdicion
-            ? 'Producto actualizado exitosamente.'
-            : 'Producto creado exitosamente.';
-        mostrarToastProducto(toastMsg, 'success');
-
-        return {
-            ok: true,
-            status: esEdicion ? 204 : 201,
-            data: resp?.data ?? resp
-        };
+        mostrarToastProducto(esEdicion ? 'Producto actualizado exitosamente.' : 'Producto creado exitosamente.', 'success');
     } catch (err) {
-        const status = Number(err?.status || err?.problemDetails?.status) || 400;
-        const friendlyMsg = extractProblemMessage(err, 'No se pudo guardar el producto.');
-        const pdErrors = err?.problemDetails?.errors || err?.errors || null;
-
-        let matchedField = false;
-        if (pdErrors && typeof pdErrors === 'object') {
-            for (const [key, val] of Object.entries(pdErrors)) {
-                const msg = Array.isArray(val) ? val[0] : String(val || friendlyMsg);
-                if (/name|nombre/i.test(key)) {
-                    setFieldInvalidState(prodNameEl, feedbackNameEl, msg);
-                    matchedField = true;
-                } else if (/price|precio/i.test(key)) {
-                    setFieldInvalidState(prodPriceEl, feedbackPriceEl, msg);
-                    matchedField = true;
-                } else if (/stock|existencia/i.test(key)) {
-                    setFieldInvalidState(prodStockEl, feedbackStockEl, msg);
-                    matchedField = true;
-                }
-            }
-        }
-
-        if (!matchedField) {
-            if (/precio|unitprice/i.test(friendlyMsg)) {
-                setFieldInvalidState(prodPriceEl, feedbackPriceEl, friendlyMsg);
-            } else if (/stock|existencia|unitsinstock/i.test(friendlyMsg)) {
-                setFieldInvalidState(prodStockEl, feedbackStockEl, friendlyMsg);
-            } else {
-                setFieldInvalidState(prodNameEl, feedbackNameEl, friendlyMsg);
-            }
-        }
-
-        if (alertModalEl) {
-            alertModalEl.textContent = friendlyMsg;
-            setElementVisibility(alertModalEl, true);
-        }
-
-        return {
-            ok: false,
-            status,
-            message: friendlyMsg,
-            problemDetails: err?.problemDetails || null
-        };
+        const msg = extractProblemMessage(err, 'No se pudo guardar el producto.');
+        alertModalEl.textContent = msg;
+        setElementVisibility(alertModalEl, true);
     } finally {
         if (btnGuardar) {
             btnGuardar.disabled = false;
@@ -666,199 +286,69 @@ async function guardarProductoModal(eventOrData = null) {
     }
 }
 
-function ensureConflict409Elements(doc) {
-    if (!doc) return {};
-
-    let modalEl = doc.getElementById('modalConflicto409');
-    if (!modalEl && doc.body) {
-        modalEl = doc.createElement('div');
-        modalEl.id = 'modalConflicto409';
-        modalEl.className = 'modal fade d-none';
-        doc.body.appendChild(modalEl);
-    }
-
-    let alertEl = doc.getElementById('alertConflicto409');
-    if (!alertEl) {
-        alertEl = doc.createElement('div');
-        alertEl.id = 'alertConflicto409';
-        alertEl.className = 'alert alert-warning d-none mb-2';
-        alertEl.setAttribute('role', 'alert');
-        if (modalEl) {
-            modalEl.appendChild(alertEl);
-        } else if (doc.body) {
-            doc.body.appendChild(alertEl);
-        }
-    }
-
-    let detalleEl = doc.getElementById('detalleConflicto409');
-    if (!detalleEl) {
-        detalleEl = doc.createElement('p');
-        detalleEl.id = 'detalleConflicto409';
-        detalleEl.className = 'small text-muted mb-0';
-        if (modalEl) {
-            modalEl.appendChild(detalleEl);
-        }
-    }
-
-    let btnDescontinuar = doc.getElementById('btnDescontinuarDesde409');
-    if (!btnDescontinuar) {
-        btnDescontinuar = doc.createElement('button');
-        btnDescontinuar.type = 'button';
-        btnDescontinuar.id = 'btnDescontinuarDesde409';
-        btnDescontinuar.className = 'btn btn-warning fw-semibold';
-        btnDescontinuar.textContent = 'Descontinuar Producto';
-        if (modalEl) {
-            modalEl.appendChild(btnDescontinuar);
-        } else if (alertEl) {
-            alertEl.appendChild(btnDescontinuar);
-        }
-    }
-
-    return { modalEl, alertEl, detalleEl, btnDescontinuar };
-}
-
 function ocultarConflicto409() {
-    const doc = getDoc();
-    if (!doc) return;
-
-    const modalEl = doc.getElementById('modalConflicto409');
-    const alertEl = doc.getElementById('alertConflicto409');
-
-    if (modal409Instancia && typeof modal409Instancia.hide === 'function') {
-        modal409Instancia.hide();
-    }
+    modal409Instancia?.hide();
+    const modalEl = document.getElementById('modalConflicto409');
     if (modalEl) {
-        modalEl.classList?.remove('show');
+        modalEl.classList.remove('show');
         setElementVisibility(modalEl, false);
     }
-    if (alertEl) {
-        setElementVisibility(alertEl, false);
-    }
+    setElementVisibility(document.getElementById('alertConflicto409'), false);
 }
 
-// Despliega el modal/alerta dedicado para conflicto 409 con acción rápida de descontinuación (TASK-F3-05)
 function mostrarConflicto409(id, problemDetails = null) {
-    const doc = getDoc();
-    if (!doc) return null;
-
-    const { modalEl, alertEl, detalleEl, btnDescontinuar } = ensureConflict409Elements(doc);
+    const modalEl = document.getElementById('modalConflicto409');
+    const alertEl = document.getElementById('alertConflicto409');
+    const detalleEl = document.getElementById('detalleConflicto409');
+    const btnDescontinuar = document.getElementById('btnDescontinuarDesde409');
     const numericId = Number(id);
 
     if (alertEl) {
         alertEl.textContent = CONFLICT_409_MESSAGE;
         setElementVisibility(alertEl, true);
     }
-
     if (detalleEl) {
-        const extraDetail = problemDetails?.detail && problemDetails.detail !== CONFLICT_409_MESSAGE
+        detalleEl.textContent = problemDetails?.detail && problemDetails.detail !== CONFLICT_409_MESSAGE
             ? String(problemDetails.detail)
             : '';
-        detalleEl.textContent = extraDetail;
     }
-
     if (btnDescontinuar) {
-        btnDescontinuar.textContent = 'Descontinuar Producto';
         btnDescontinuar.dataset.id = String(numericId);
-        btnDescontinuar.setAttribute?.('data-id', String(numericId));
         btnDescontinuar.disabled = false;
-
-        const handler = async (e) => {
-            if (e && typeof e.preventDefault === 'function') e.preventDefault();
-            const targetId = Number(btnDescontinuar.dataset.id || numericId);
-            return await manejarDescontinuacionProducto(targetId);
+        btnDescontinuar.onclick = async (e) => {
+            e?.preventDefault?.();
+            await manejarDescontinuacionProducto(Number(btnDescontinuar.dataset.id || numericId));
         };
-
-        btnDescontinuar.onclick = handler;
-        if (btnDescontinuar.listeners && typeof btnDescontinuar.listeners.set === 'function') {
-            btnDescontinuar.listeners.set('click', [handler]);
-        } else if (!btnDescontinuar.dataset.listener409Bound) {
-            btnDescontinuar.dataset.listener409Bound = 'true';
-            btnDescontinuar.addEventListener?.('click', handler);
-        }
     }
-
     if (modalEl) {
-        // En MockElement (pruebas unitarias), asegurar que modalEl.textContent también exponga el mensaje requerido
-        if (Object.prototype.hasOwnProperty.call(modalEl, 'textContent')) {
-            modalEl.textContent = CONFLICT_409_MESSAGE;
-        }
         setElementVisibility(modalEl, true);
-        modalEl.classList?.add('show');
-
+        modalEl.classList.add('show');
         if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-            try {
-                modal409Instancia = bootstrap.Modal.getOrCreateInstance
-                    ? bootstrap.Modal.getOrCreateInstance(modalEl)
-                    : new bootstrap.Modal(modalEl);
-                modal409Instancia.show();
-            } catch {
-                // Fallback visual directo ya aplicado
-            }
+            modal409Instancia = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal409Instancia.show();
         }
     }
-
-    return {
-        modalEl,
-        alertEl,
-        btnDescontinuar,
-        message: CONFLICT_409_MESSAGE
-    };
 }
 
-// Descontinúa lógicamente un producto (discontinued = true)
-async function manejarDescontinuacionProducto(id, prod = null) {
-    if (!permisosActuales.canDiscontinueProducts) {
-        return { ok: false, status: 403, message: 'No tienes permisos para descontinuar productos.' };
-    }
-
+async function manejarDescontinuacionProducto(id) {
+    if (!permisosActuales.canDiscontinueProducts) return;
     const numericId = Number(id);
-    const cachedProd = prod || productosCache.find((p) => Number(p?.productId ?? p?.ProductId) === numericId) || null;
+    const cachedProd = productosCache.find((p) => Number(p.productId) === numericId) || null;
 
     try {
-        await productService.discontinue(numericId, cachedProd);
-
-        if (cachedProd) {
-            cachedProd.discontinued = true;
-        }
-
+        await productModel.discontinue(numericId, cachedProd);
         ocultarConflicto409();
         await listarProductos();
         mostrarToastProducto(`Producto #${numericId} marcado como descontinuado.`, 'warning');
-
-        return {
-            ok: true,
-            status: 204,
-            productId: numericId,
-            discontinued: true
-        };
     } catch (err) {
-        const msg = extractProblemMessage(err, 'No se pudo descontinuar el producto.');
-        mostrarToastProducto(msg, 'danger');
-        return {
-            ok: false,
-            status: Number(err?.status || err?.problemDetails?.status) || 500,
-            message: msg
-        };
+        mostrarToastProducto(extractProblemMessage(err, 'No se pudo descontinuar el producto.'), 'danger');
     }
 }
 
-// Ejecuta eliminación física o captura HTTP 409 Conflict ofreciendo descontinuación lógica
-async function manejarEliminacionProducto(id, btnElement = null, { skipConfirm = false } = {}) {
-    if (!permisosActuales.canDeleteProducts) {
-        return { ok: false, status: 403, message: 'No tienes permisos para eliminar productos.' };
-    }
-
+async function manejarEliminacionProducto(id, btnElement = null) {
+    if (!permisosActuales.canDeleteProducts) return;
     const numericId = Number(id);
-
-    if (!skipConfirm && btnElement !== null) {
-        const confirmFn = (typeof window !== 'undefined' && typeof window.confirm === 'function')
-            ? window.confirm.bind(window)
-            : (typeof confirm === 'function' ? confirm : null);
-        if (confirmFn) {
-            const confirmar = confirmFn(`¿Estás seguro de eliminar el producto #${numericId}?`);
-            if (confirmar === false) return { ok: false, cancelled: true };
-        }
-    }
+    if (!confirmAction(`¿Estás seguro de eliminar el producto #${numericId}?`)) return;
 
     if (btnElement) {
         btnElement.disabled = true;
@@ -866,60 +356,16 @@ async function manejarEliminacionProducto(id, btnElement = null, { skipConfirm =
     }
 
     try {
-        const resp = await productService.delete(numericId);
-
-        if (resp && resp.ok === false) {
-            const status = Number(resp.status || resp.problemDetails?.status) || 500;
-            if (status === 409) {
-                const pd = resp.problemDetails || resp.data || { status: 409, detail: CONFLICT_409_MESSAGE };
-                mostrarConflicto409(numericId, pd);
-                return {
-                    ok: false,
-                    status: 409,
-                    conflict: true,
-                    message: CONFLICT_409_MESSAGE,
-                    problemDetails: pd
-                };
-            }
-
-            const errObj = new Error(extractProblemMessage(resp, `No se pudo eliminar (HTTP ${status})`));
-            errObj.status = status;
-            errObj.problemDetails = resp.problemDetails || null;
-            throw errObj;
-        }
-
+        await productModel.delete(numericId);
         await listarProductos();
         mostrarToastProducto('Producto eliminado exitosamente.', 'success');
-        return {
-            ok: true,
-            status: 204,
-            productId: numericId
-        };
     } catch (err) {
         const status = Number(err?.status || err?.problemDetails?.status) || 0;
-        if (status === 409 || /409|conflict|integridad|vinculad|hist[oó]ric/i.test(String(err?.message || ''))) {
-            const pd = err?.problemDetails || {
-                status: 409,
-                title: err?.title || 'Conflicto de integridad referencial',
-                detail: err?.detail || err?.message || CONFLICT_409_MESSAGE
-            };
-            mostrarConflicto409(numericId, pd);
-            return {
-                ok: false,
-                status: 409,
-                conflict: true,
-                message: CONFLICT_409_MESSAGE,
-                problemDetails: pd
-            };
+        if (status === 409) {
+            mostrarConflicto409(numericId, err?.problemDetails);
+            return;
         }
-
-        const msg = extractProblemMessage(err, 'Error al eliminar el producto.');
-        mostrarToastProducto(msg, 'danger');
-        return {
-            ok: false,
-            status: status || 500,
-            message: msg
-        };
+        mostrarToastProducto(extractProblemMessage(err, 'Error al eliminar el producto.'), 'danger');
     } finally {
         if (btnElement) {
             btnElement.disabled = false;
@@ -948,8 +394,7 @@ function inicializarTabla() {
                 data: 'discontinued',
                 defaultContent: false,
                 render: (d, type) => {
-                    const texto = d ? 'Descontinuado' : 'Activo';
-                    if (type !== 'display') return texto;
+                    if (type !== 'display') return d ? 'Descontinuado' : 'Activo';
                     return d
                         ? '<span class="badge bg-danger">Descontinuado</span>'
                         : '<span class="badge bg-success">Activo</span>';
@@ -966,102 +411,41 @@ function inicializarTabla() {
     }));
 }
 
-function configurarEventos(doc = getDoc()) {
-    if (!doc) return;
+function configurarEventos() {
+    document.getElementById('btnNuevoProducto')?.addEventListener('click', abrirModalNuevoProducto);
+    document.getElementById('modalProducto')?.addEventListener('hidden.bs.modal', limpiarValidacionModal);
+    document.getElementById('btnCancelarModalProducto')?.addEventListener('click', limpiarValidacionModal);
+    document.getElementById('btnCerrarConflicto409')?.addEventListener('click', ocultarConflicto409);
+    document.getElementById('formProducto')?.addEventListener('submit', guardarProductoModal);
 
-    const form = doc.getElementById('formProducto');
-    const btnNuevo = doc.getElementById('btnNuevoProducto');
-    const modalEl = doc.getElementById('modalProducto');
-    const btnCancelarModal = doc.getElementById('btnCancelarModalProducto');
-    const btnCerrar409 = doc.getElementById('btnCerrarConflicto409');
+    document.getElementById('tablaProductos')?.addEventListener('click', async (e) => {
+        const btn = e.target?.closest?.('button[data-action]');
+        const id = parseInt(btn?.dataset.id, 10);
+        if (!btn || Number.isNaN(id)) return;
 
-    if (btnNuevo) {
-        btnNuevo.addEventListener('click', () => {
-            abrirModalNuevoProducto();
-        });
-    }
-
-    if (modalEl) {
-        modalEl.addEventListener('hidden.bs.modal', () => {
-            limpiarValidacionModal(doc);
-        });
-    }
-
-    if (btnCancelarModal) {
-        btnCancelarModal.addEventListener('click', () => {
-            limpiarValidacionModal(doc);
-        });
-    }
-
-    if (btnCerrar409) {
-        btnCerrar409.addEventListener('click', () => {
-            ocultarConflicto409();
-        });
-    }
-
-    if (form) {
-        form.addEventListener('submit', async (e) => {
-            await guardarProductoModal(e);
-        });
-    }
-
-    const tablaEl = doc.getElementById('tablaProductos');
-    if (tablaEl) {
-        tablaEl.addEventListener('click', async (e) => {
-            const target = e.target;
-            const btn = target && typeof target.closest === 'function'
-                ? target.closest('button[data-action]')
-                : target;
-            if (!btn) return;
-
-            const action = btn.dataset?.action || btn.getAttribute?.('data-action');
-            const id = parseInt(btn.dataset?.id || btn.getAttribute?.('data-id'), 10);
-            if (Number.isNaN(id)) return;
-
-            if (action === 'editar') {
-                editarProducto(id);
-            } else if (action === 'descontinuar' && permisosActuales.canDiscontinueProducts) {
-                await manejarDescontinuacionProducto(id);
-            } else if (action === 'eliminar' && permisosActuales.canDeleteProducts) {
-                await manejarEliminacionProducto(id, btn);
-            }
-        });
-    }
+        if (btn.dataset.action === 'editar') editarProducto(id);
+        else if (btn.dataset.action === 'descontinuar' && permisosActuales.canDiscontinueProducts) await manejarDescontinuacionProducto(id);
+        else if (btn.dataset.action === 'eliminar' && permisosActuales.canDeleteProducts) await manejarEliminacionProducto(id, btn);
+    });
 }
 
-async function initProductsController(customDoc = null) {
-    const doc = getDoc(customDoc);
-    if (!doc) return;
+async function initProductsController() {
+    const usuario = await initAuthenticatedView({
+        authModel,
+        requiredPermission: 'canViewProductsAdmin'
+    });
+    if (!usuario) return;
 
-    const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)
-        || (typeof authService.getCurrentUser === 'function' && authService.getCurrentUser())
-        || await authService.checkSession();
-    if (!usuario) {
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './login.html';
-        }
-        return;
-    }
-
-    permisosActuales = normalizarPermisosProductos(resolveConnectedPermissions(usuario, authService));
-    if (!permisosActuales.canViewProductsAdmin) {
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './catalogo.html?error=403';
-        }
-        return;
-    }
-
-    initNavbar(usuario, authService);
+    permisosActuales = normalizarPermisosProductos(resolveConnectedPermissions(usuario, authModel));
     aplicarPermisosProductos(permisosActuales);
 
-    const modalEl = doc.getElementById('modalProducto');
+    const modalEl = document.getElementById('modalProducto');
     if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
         modalInstancia = new bootstrap.Modal(modalEl);
     }
 
     inicializarTabla();
-    configurarEventos(doc);
-
+    configurarEventos();
     await listarProductos();
 }
 
@@ -1069,11 +453,11 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
     document.addEventListener('DOMContentLoaded', async () => {
         if (
             document.body?.getAttribute?.('data-auth-blocked') ||
-            !authService.isAuthenticated() ||
-            !authService.hasPermission('canViewProductsAdmin')
+            !authModel.isAuthenticated() ||
+            !authModel.hasPermission('canViewProductsAdmin')
         ) {
             return;
         }
-        await initProductsController(document);
+        await initProductsController();
     });
 }

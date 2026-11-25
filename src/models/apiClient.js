@@ -1,24 +1,42 @@
-import {
-    STORAGE_KEYS,
-    SENSITIVE_LOCAL_KEYS,
-    PRODUCTS,
-    CUSTOMERS,
-    ORDERS,
-    ORDERS_MINE,
-    ENDPOINTS,
-    isPublicEndpoint,
-    buildApiUrl
-} from './config.js';
+const API_BASE_URL = 'https://localhost:7039/api';
 
-export {
-    STORAGE_KEYS,
-    SENSITIVE_LOCAL_KEYS,
+export const STORAGE_KEYS = Object.freeze({
+    AUTH_TOKEN: 'northwind_jwt_token',
+    AUTH_SESSION: 'auth_session',
+    AUTH_FLASH_ERROR: 'auth_flash_error'
+});
+
+export const SENSITIVE_LOCAL_KEYS = Object.freeze([
+    STORAGE_KEYS.AUTH_TOKEN,
+    STORAGE_KEYS.AUTH_SESSION,
+    STORAGE_KEYS.AUTH_FLASH_ERROR,
+    'northwind_api_url',
+    'auth_token',
+    'token',
+    'jwt',
+    'access_token',
+    'user',
+    'session',
+    'password'
+]);
+
+const AUTH_LOGIN = '/auth/login';
+const AUTH_REGISTER = '/auth/register';
+const AUTH_ME = '/auth/me';
+export const PRODUCTS = '/Products';
+export const CUSTOMERS = '/customers';
+export const ORDERS = '/orders';
+export const ORDERS_MINE = '/orders/mine';
+
+export const ENDPOINTS = Object.freeze({
+    AUTH_LOGIN,
+    AUTH_REGISTER,
+    AUTH_ME,
     PRODUCTS,
     CUSTOMERS,
     ORDERS,
-    ORDERS_MINE,
-    ENDPOINTS
-};
+    ORDERS_MINE
+});
 
 const STATUS_ERROR_MESSAGES = Object.freeze({
     400: 'Solicitud inválida. Verifica los datos ingresados.',
@@ -39,6 +57,36 @@ const GENERIC_HTTP_REASONS = new Set([
     'conflict',
     'internal server error'
 ]);
+
+function isPublicEndpoint(endpoint = '') {
+    if (!endpoint || typeof endpoint !== 'string') return false;
+    let path = endpoint.trim();
+    if (/^https?:\/\//i.test(path)) {
+        try {
+            path = new URL(path).pathname;
+        } catch {
+            return false;
+        }
+    }
+    const cleanPath = path.split('?')[0].split('#')[0].trim().toLowerCase().replace(/\/+$/, '');
+    const withLeadingSlash = cleanPath.startsWith('/') ? cleanPath : `/${cleanPath}`;
+    const normalized = withLeadingSlash.startsWith('/api/') ? withLeadingSlash.slice(4) : withLeadingSlash;
+    return normalized === AUTH_LOGIN || normalized === AUTH_REGISTER;
+}
+
+function buildApiUrl(endpoint = '') {
+    if (/^https?:\/\//i.test(endpoint)) {
+        return endpoint;
+    }
+
+    const ep = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const epLower = ep.toLowerCase();
+    const normalized = epLower === '/api'
+        ? ''
+        : (epLower.startsWith('/api/') ? ep.slice(4) : ep);
+
+    return `${API_BASE_URL}${normalized}`;
+}
 
 export class ApiError extends Error {
     constructor(problemDetails) {
@@ -231,7 +279,6 @@ export function clearAuthToken() {
             sessionStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
             sessionStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
             sessionStorage.removeItem(STORAGE_KEYS.AUTH_FLASH_ERROR);
-            sessionStorage.removeItem('northwind_discontinued_products');
             sessionStorage.clear?.();
         }
         if (typeof localStorage !== 'undefined') {
@@ -294,13 +341,8 @@ export const httpClient = async (endpoint, options = {}) => {
     const url = buildApiUrl(endpoint);
     const headers = buildRequestHeaders(endpoint, options.headers || {}, options.body);
 
-    const finalOptions = {
-        ...options,
-        headers
-    };
-
     try {
-        const response = await fetch(url, finalOptions);
+        const response = await fetch(url, { ...options, headers });
 
         if (!response.ok) {
             const problemDetails = await parseProblemDetails(response);
