@@ -38,10 +38,6 @@ export const ENDPOINTS = Object.freeze({
     ORDERS_MINE
 });
 
-function getBaseUrl() {
-    return API_BASE_URL;
-}
-
 export function isPublicEndpoint(endpoint = '') {
     if (!endpoint || typeof endpoint !== 'string') return false;
     let path = endpoint.trim();
@@ -65,18 +61,11 @@ export function buildApiUrl(endpoint = '') {
         return endpoint;
     }
 
-    const base = getBaseUrl().replace(/\/+$/, '');
-    const baseLower = base.toLowerCase();
     const ep = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     const epLower = ep.toLowerCase();
+    const normalized = epLower === '/api'
+        ? ''
+        : (epLower.startsWith('/api/') ? ep.slice(4) : ep);
 
-    if (baseLower.endsWith('/api') && (epLower === '/api' || epLower.startsWith('/api/'))) {
-        return `${base}${ep.slice(4)}`;
-    }
-
-    if (!baseLower.endsWith('/api') && epLower !== '/api' && !epLower.startsWith('/api/')) {
-        return `${base}/api${ep}`;
-    }
-
-    return `${base}${ep}`;
+    return `${API_BASE_URL}${normalized}`;
 }

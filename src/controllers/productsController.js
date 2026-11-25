@@ -4,12 +4,10 @@ import { productService } from "../services/productService.js";
 import { ProductModel, validateProduct } from "../models/productModel.js";
 import {
     baseTableOptions,
-    clearTbody,
+    confirmAction,
     escapeHtml,
     extractProblemMessage,
-    formatCurrency,
-    getDoc,
-    initNavbar,
+    initAuthenticatedView,
     resolveConnectedPermissions,
     safeTextRender,
     setElementVisibility
@@ -56,6 +54,19 @@ function normalizarPermisosProductos(permisos = permisosActuales) {
     };
 }
 
+function setProductsTableMessage(message) {
+    const tbody = document.getElementById('tbodyProductos');
+    if (!tbody) return;
+    tbody.textContent = '';
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 6;
+    td.className = 'text-center text-muted py-3';
+    td.textContent = message;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+}
+
 // Genera los botones de acción de cada fila según las capacidades de UI autorizadas por el backend
 function renderAccionesProducto(row, permisos = permisosActuales) {
     const idSeguro = escapeHtml(row?.productId ?? row?.ProductId ?? '');
@@ -94,63 +105,42 @@ function aplicarPermisosProductos(permisos = permisosActuales) {
     const puedeEliminar = permisosActuales.canDeleteProducts;
     const puedeDescontinuar = permisosActuales.canDiscontinueProducts;
 
-    const doc = getDoc();
-    if (!doc) return;
-
-    const btnNuevo = doc.getElementById('btnNuevoProducto');
+    const btnNuevo = document.getElementById('btnNuevoProducto');
     if (btnNuevo) {
         setElementVisibility(btnNuevo, puedeCrear);
     }
 
-    if (typeof doc.querySelectorAll === 'function') {
-        const botonesEliminar = Array.from(doc.querySelectorAll('button[data-action="eliminar"]') || []);
-        for (const btn of botonesEliminar) {
-            setElementVisibility(btn, puedeEliminar);
-        }
-
-        const botonesDescontinuar = Array.from(doc.querySelectorAll('button[data-action="descontinuar"]') || []);
-        for (const btn of botonesDescontinuar) {
-            setElementVisibility(btn, puedeDescontinuar);
-        }
+    for (const btn of document.querySelectorAll('button[data-action="eliminar"]')) {
+        setElementVisibility(btn, puedeEliminar);
     }
-
-    // Soporte adicional para entornos de prueba con doc.allElements
-    if (Array.isArray(doc.allElements)) {
-        for (const el of doc.allElements) {
-            if (!el || el.tagName !== 'BUTTON') continue;
-            const action = el.dataset?.action || el.getAttribute?.('data-action');
-            if (action === 'eliminar') {
-                setElementVisibility(el, puedeEliminar);
-            } else if (action === 'descontinuar') {
-                setElementVisibility(el, puedeDescontinuar);
-            }
-        }
+    for (const btn of document.querySelectorAll('button[data-action="descontinuar"]')) {
+        setElementVisibility(btn, puedeDescontinuar);
     }
 
     // Restricción de campos en el modal según capacidades autorizadas
-    const prodName = doc.getElementById('prodName');
-    const prodDiscontinued = doc.getElementById('prodDiscontinued');
-    const prodPrice = doc.getElementById('prodPrice');
-    const prodStock = doc.getElementById('prodStock');
+    const prodName = document.getElementById('prodName');
+    const prodDiscontinued = document.getElementById('prodDiscontinued');
+    const prodPrice = document.getElementById('prodPrice');
+    const prodStock = document.getElementById('prodStock');
 
     if (prodName) {
         prodName.disabled = !puedeEditarDetalles;
         prodName.readOnly = !puedeEditarDetalles;
         if (!puedeEditarDetalles) {
-            prodName.setAttribute?.('readonly', 'true');
-            prodName.setAttribute?.('disabled', 'true');
+            prodName.setAttribute('readonly', 'true');
+            prodName.setAttribute('disabled', 'true');
         } else {
-            prodName.removeAttribute?.('readonly');
-            prodName.removeAttribute?.('disabled');
+            prodName.removeAttribute('readonly');
+            prodName.removeAttribute('disabled');
         }
     }
 
     if (prodDiscontinued) {
         prodDiscontinued.disabled = !puedeEditarDetalles;
         if (!puedeEditarDetalles) {
-            prodDiscontinued.setAttribute?.('disabled', 'true');
+            prodDiscontinued.setAttribute('disabled', 'true');
         } else {
-            prodDiscontinued.removeAttribute?.('disabled');
+            prodDiscontinued.removeAttribute('disabled');
         }
     }
 
@@ -166,32 +156,29 @@ function aplicarPermisosProductos(permisos = permisosActuales) {
 }
 
 // Limpia todos los estados de validación del formulario modal (TASK-F3-04)
-function limpiarValidacionModal(customDoc = null) {
-    const doc = getDoc(customDoc);
-    if (!doc) return;
-
-    const form = doc.getElementById('formProducto');
+function limpiarValidacionModal() {
+    const form = document.getElementById('formProducto');
     if (form) {
-        form.classList?.remove('was-validated');
+        form.classList.remove('was-validated');
     }
 
     const fieldIds = ['prodName', 'prodPrice', 'prodStock', 'prodDiscontinued'];
     for (const id of fieldIds) {
-        const input = doc.getElementById(id);
+        const input = document.getElementById(id);
         if (input) {
-            input.classList?.remove('is-invalid', 'is-valid');
-            input.removeAttribute?.('aria-invalid');
+            input.classList.remove('is-invalid', 'is-valid');
+            input.removeAttribute('aria-invalid');
         }
     }
 
     for (const [feedbackId, defaultText] of Object.entries(DEFAULT_FEEDBACK_MESSAGES)) {
-        const feedbackEl = doc.getElementById(feedbackId);
+        const feedbackEl = document.getElementById(feedbackId);
         if (feedbackEl) {
             feedbackEl.textContent = defaultText;
         }
     }
 
-    const alertModal = doc.getElementById('alertModalProducto');
+    const alertModal = document.getElementById('alertModalProducto');
     if (alertModal) {
         alertModal.textContent = '';
         setElementVisibility(alertModal, false);
@@ -200,33 +187,27 @@ function limpiarValidacionModal(customDoc = null) {
 
 // Muestra notificación Toast no bloqueante para operaciones de productos (TASK-F3-04 / TASK-F3-05)
 function mostrarToastProducto(mensaje, tipo = 'success') {
-    const doc = getDoc();
     const textoSeguro = String(mensaje || '');
-    if (!doc) return null;
 
-    let container = doc.getElementById('toastContainerProductos');
-    if (!container && doc.body) {
-        container = doc.createElement('div');
+    let container = document.getElementById('toastContainerProductos');
+    if (!container && document.body) {
+        container = document.createElement('div');
         container.id = 'toastContainerProductos';
         container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
-        doc.body.appendChild(container);
+        document.body.appendChild(container);
     }
 
-    let toastEl = doc.getElementById('toastProducto');
+    let toastEl = document.getElementById('toastProducto');
     if (!toastEl) {
-        toastEl = doc.createElement('div');
+        toastEl = document.createElement('div');
         toastEl.id = 'toastProducto';
         toastEl.setAttribute('role', 'status');
-        if (container) {
-            container.appendChild(toastEl);
-        } else if (doc.body) {
-            doc.body.appendChild(toastEl);
-        }
+        (container || document.body)?.appendChild(toastEl);
     }
 
-    let bodyEl = doc.getElementById('toastProductoMensaje');
+    let bodyEl = document.getElementById('toastProductoMensaje');
     if (!bodyEl) {
-        bodyEl = doc.createElement('div');
+        bodyEl = document.createElement('div');
         bodyEl.id = 'toastProductoMensaje';
         bodyEl.className = 'toast-body fw-semibold';
         toastEl.appendChild(bodyEl);
@@ -256,104 +237,7 @@ function mostrarToastProducto(mensaje, tipo = 'success') {
     return toastEl;
 }
 
-// Renderiza filas en #tbodyProductos cuando DataTables no está cargado (entornos DOM / pruebas unitarias)
-function renderizarTablaFallback(lista = productosCache, permisos = permisosActuales) {
-    const doc = getDoc();
-    if (!doc) return;
-
-    const tbody = doc.getElementById('tbodyProductos');
-    if (!tbody) return;
-
-    const items = Array.isArray(lista) ? lista : [];
-    const p = normalizarPermisosProductos(permisos);
-    clearTbody(tbody);
-
-    if (typeof doc.createElement !== 'function') return;
-
-    for (const prod of items) {
-        const id = prod?.productId ?? prod?.ProductId ?? '';
-        const name = prod?.productName ?? prod?.ProductName ?? '';
-        const price = prod?.unitPrice ?? prod?.UnitPrice ?? 0;
-        const stock = prod?.unitsInStock ?? prod?.UnitsInStock ?? 0;
-        const disc = Boolean(prod?.discontinued ?? prod?.Discontinued);
-
-        const tr = doc.createElement('tr');
-        if (tr.dataset) {
-            tr.dataset.productId = String(id);
-        }
-        tr.setAttribute?.('data-product-id', String(id));
-
-        const tdId = doc.createElement('td');
-        const strongId = doc.createElement('strong');
-        strongId.textContent = String(id);
-        tdId.appendChild(strongId);
-
-        const tdName = doc.createElement('td');
-        tdName.textContent = String(name);
-
-        const tdPrice = doc.createElement('td');
-        tdPrice.textContent = formatCurrency(price);
-
-        const tdStock = doc.createElement('td');
-        tdStock.textContent = String(stock);
-
-        const tdStatus = doc.createElement('td');
-        const spanBadge = doc.createElement('span');
-        spanBadge.className = disc ? 'badge bg-danger' : 'badge bg-success';
-        spanBadge.textContent = disc ? 'Descontinuado' : 'Activo';
-        tdStatus.appendChild(spanBadge);
-
-        const tdActions = doc.createElement('td');
-        tdActions.className = 'text-center text-nowrap';
-
-        if (p.canEditProductPricingStock || p.canEditProductDetails) {
-            const hasMore = p.canDiscontinueProducts || p.canDeleteProducts;
-            const btnEditar = doc.createElement('button');
-            btnEditar.type = 'button';
-            btnEditar.className = `btn btn-sm btn-outline-primary${hasMore ? ' me-1' : ''}`;
-            btnEditar.setAttribute('data-action', 'editar');
-            btnEditar.setAttribute('data-id', String(id));
-            btnEditar.textContent = 'Editar';
-            tdActions.appendChild(btnEditar);
-        }
-
-        if (p.canDiscontinueProducts) {
-            const btnDescontinuar = doc.createElement('button');
-            btnDescontinuar.type = 'button';
-            btnDescontinuar.className = `btn btn-sm ${disc ? 'btn-secondary' : 'btn-outline-warning'}${p.canDeleteProducts ? ' me-1' : ''}`;
-            btnDescontinuar.setAttribute('data-action', 'descontinuar');
-            btnDescontinuar.setAttribute('data-id', String(id));
-            if (disc) {
-                btnDescontinuar.disabled = true;
-                btnDescontinuar.setAttribute('disabled', 'disabled');
-            }
-            btnDescontinuar.textContent = disc ? 'Descontinuado' : 'Descontinuar';
-            tdActions.appendChild(btnDescontinuar);
-        }
-
-        if (p.canDeleteProducts) {
-            const btnEliminar = doc.createElement('button');
-            btnEliminar.type = 'button';
-            btnEliminar.className = 'btn btn-sm btn-outline-danger';
-            btnEliminar.setAttribute('data-action', 'eliminar');
-            btnEliminar.setAttribute('data-id', String(id));
-            btnEliminar.textContent = 'Eliminar';
-            tdActions.appendChild(btnEliminar);
-        }
-
-        tr.appendChild(tdId);
-        tr.appendChild(tdName);
-        tr.appendChild(tdPrice);
-        tr.appendChild(tdStock);
-        tr.appendChild(tdStatus);
-        tr.appendChild(tdActions);
-
-        tbody.appendChild(tr);
-    }
-}
-
 async function listarProductos() {
-    const doc = getDoc();
     try {
         const resultado = await productService.getAll();
 
@@ -362,15 +246,15 @@ async function listarProductos() {
             : (Array.isArray(resultado?.products) ? resultado.products : []);
 
         const total = resultado?.totalProducts ?? productosCache.length;
-        const lblTotal = doc?.getElementById('lblTotalProductos');
+        const lblTotal = document.getElementById('lblTotalProductos');
         if (lblTotal) {
             lblTotal.textContent = String(total);
         }
 
         if (tabla) {
             tabla.clear().rows.add(productosCache).draw();
-        } else {
-            renderizarTablaFallback(productosCache, permisosActuales);
+        } else if (productosCache.length === 0) {
+            setProductsTableMessage('No se encontraron productos.');
         }
 
         aplicarPermisosProductos(permisosActuales);
@@ -379,31 +263,29 @@ async function listarProductos() {
         if (tabla) {
             tabla.clear().draw();
         } else {
-            renderizarTablaFallback([], permisosActuales);
+            setProductsTableMessage('No se pudieron cargar los productos.');
         }
-        mostrarToastProducto(`Error al listar productos: ${err?.message || 'Error desconocido'}`, 'danger');
+        mostrarToastProducto(`Error al listar productos: ${extractProblemMessage(err, 'Error desconocido')}`, 'danger');
         return [];
     }
 }
 
 function abrirModalNuevoProducto() {
     if (!permisosActuales.canCreateProducts) return false;
-    const doc = getDoc();
-    if (!doc) return false;
 
-    const form = doc.getElementById('formProducto');
+    const form = document.getElementById('formProducto');
     if (form && typeof form.reset === 'function') {
         form.reset();
     }
 
-    limpiarValidacionModal(doc);
+    limpiarValidacionModal();
 
-    const prodId = doc.getElementById('prodId');
-    const prodName = doc.getElementById('prodName');
-    const prodPrice = doc.getElementById('prodPrice');
-    const prodStock = doc.getElementById('prodStock');
-    const prodDiscontinued = doc.getElementById('prodDiscontinued');
-    const modalTitulo = doc.getElementById('modalTitulo');
+    const prodId = document.getElementById('prodId');
+    const prodName = document.getElementById('prodName');
+    const prodPrice = document.getElementById('prodPrice');
+    const prodStock = document.getElementById('prodStock');
+    const prodDiscontinued = document.getElementById('prodDiscontinued');
+    const modalTitulo = document.getElementById('modalTitulo');
 
     if (prodId) prodId.value = '';
     if (prodName) prodName.value = '';
@@ -422,17 +304,14 @@ function editarProducto(id) {
     const prod = productosCache.find((p) => Number(p?.productId ?? p?.ProductId) === numericId);
     if (!prod) return null;
 
-    const doc = getDoc();
-    if (!doc) return prod;
+    limpiarValidacionModal();
 
-    limpiarValidacionModal(doc);
-
-    const prodId = doc.getElementById('prodId');
-    const prodName = doc.getElementById('prodName');
-    const prodPrice = doc.getElementById('prodPrice');
-    const prodStock = doc.getElementById('prodStock');
-    const prodDiscontinued = doc.getElementById('prodDiscontinued');
-    const modalTitulo = doc.getElementById('modalTitulo');
+    const prodId = document.getElementById('prodId');
+    const prodName = document.getElementById('prodName');
+    const prodPrice = document.getElementById('prodPrice');
+    const prodStock = document.getElementById('prodStock');
+    const prodDiscontinued = document.getElementById('prodDiscontinued');
+    const modalTitulo = document.getElementById('modalTitulo');
 
     const resolvedId = prod.productId ?? prod.ProductId;
     const resolvedName = prod.productName ?? prod.ProductName ?? '';
@@ -454,9 +333,9 @@ function editarProducto(id) {
 
 function setFieldInvalidState(inputEl, feedbackEl, message) {
     if (inputEl) {
-        inputEl.classList?.remove('is-valid');
-        inputEl.classList?.add('is-invalid');
-        inputEl.setAttribute?.('aria-invalid', 'true');
+        inputEl.classList.remove('is-valid');
+        inputEl.classList.add('is-invalid');
+        inputEl.setAttribute('aria-invalid', 'true');
     }
     if (feedbackEl && message) {
         feedbackEl.textContent = message;
@@ -469,8 +348,7 @@ async function guardarProductoModal(eventOrData = null) {
         eventOrData.preventDefault();
     }
 
-    const doc = getDoc();
-    limpiarValidacionModal(doc);
+    limpiarValidacionModal();
 
     const isDirectData = Boolean(
         eventOrData &&
@@ -478,17 +356,17 @@ async function guardarProductoModal(eventOrData = null) {
         typeof eventOrData.preventDefault !== 'function'
     );
 
-    const form = doc?.getElementById('formProducto');
-    const prodIdEl = doc?.getElementById('prodId');
-    const prodNameEl = doc?.getElementById('prodName');
-    const prodPriceEl = doc?.getElementById('prodPrice');
-    const prodStockEl = doc?.getElementById('prodStock');
-    const prodDiscontinuedEl = doc?.getElementById('prodDiscontinued');
-    const feedbackNameEl = doc?.getElementById('feedbackProdName');
-    const feedbackPriceEl = doc?.getElementById('feedbackProdPrice');
-    const feedbackStockEl = doc?.getElementById('feedbackProdStock');
-    const alertModalEl = doc?.getElementById('alertModalProducto');
-    const btnGuardar = doc?.getElementById('btnGuardar');
+    const form = document.getElementById('formProducto');
+    const prodIdEl = document.getElementById('prodId');
+    const prodNameEl = document.getElementById('prodName');
+    const prodPriceEl = document.getElementById('prodPrice');
+    const prodStockEl = document.getElementById('prodStock');
+    const prodDiscontinuedEl = document.getElementById('prodDiscontinued');
+    const feedbackNameEl = document.getElementById('feedbackProdName');
+    const feedbackPriceEl = document.getElementById('feedbackProdPrice');
+    const feedbackStockEl = document.getElementById('feedbackProdStock');
+    const alertModalEl = document.getElementById('alertModalProducto');
+    const btnGuardar = document.getElementById('btnGuardar');
 
     const rawId = isDirectData && eventOrData.productId !== undefined
         ? eventOrData.productId
@@ -554,11 +432,11 @@ async function guardarProductoModal(eventOrData = null) {
             setFieldInvalidState(prodStockEl, feedbackStockEl, fe.unitsInStock);
         }
         if (fe.discontinued && prodDiscontinuedEl) {
-            prodDiscontinuedEl.classList?.add('is-invalid');
+            prodDiscontinuedEl.classList.add('is-invalid');
         }
 
         if (form) {
-            form.classList?.add('was-validated');
+            form.classList.add('was-validated');
         }
 
         const mainErrorMsg = validationErrors[0] || 'Verifica los datos ingresados en el formulario.';
@@ -602,7 +480,7 @@ async function guardarProductoModal(eventOrData = null) {
         }
 
         modalInstancia?.hide();
-        limpiarValidacionModal(doc);
+        limpiarValidacionModal();
         await listarProductos();
 
         const toastMsg = esEdicion
@@ -666,69 +544,54 @@ async function guardarProductoModal(eventOrData = null) {
     }
 }
 
-function ensureConflict409Elements(doc) {
-    if (!doc) return {};
-
-    let modalEl = doc.getElementById('modalConflicto409');
-    if (!modalEl && doc.body) {
-        modalEl = doc.createElement('div');
+function ensureConflict409Elements() {
+    let modalEl = document.getElementById('modalConflicto409');
+    if (!modalEl && document.body) {
+        modalEl = document.createElement('div');
         modalEl.id = 'modalConflicto409';
         modalEl.className = 'modal fade d-none';
-        doc.body.appendChild(modalEl);
+        document.body.appendChild(modalEl);
     }
 
-    let alertEl = doc.getElementById('alertConflicto409');
+    let alertEl = document.getElementById('alertConflicto409');
     if (!alertEl) {
-        alertEl = doc.createElement('div');
+        alertEl = document.createElement('div');
         alertEl.id = 'alertConflicto409';
         alertEl.className = 'alert alert-warning d-none mb-2';
         alertEl.setAttribute('role', 'alert');
-        if (modalEl) {
-            modalEl.appendChild(alertEl);
-        } else if (doc.body) {
-            doc.body.appendChild(alertEl);
-        }
+        (modalEl || document.body)?.appendChild(alertEl);
     }
 
-    let detalleEl = doc.getElementById('detalleConflicto409');
+    let detalleEl = document.getElementById('detalleConflicto409');
     if (!detalleEl) {
-        detalleEl = doc.createElement('p');
+        detalleEl = document.createElement('p');
         detalleEl.id = 'detalleConflicto409';
         detalleEl.className = 'small text-muted mb-0';
-        if (modalEl) {
-            modalEl.appendChild(detalleEl);
-        }
+        modalEl?.appendChild(detalleEl);
     }
 
-    let btnDescontinuar = doc.getElementById('btnDescontinuarDesde409');
+    let btnDescontinuar = document.getElementById('btnDescontinuarDesde409');
     if (!btnDescontinuar) {
-        btnDescontinuar = doc.createElement('button');
+        btnDescontinuar = document.createElement('button');
         btnDescontinuar.type = 'button';
         btnDescontinuar.id = 'btnDescontinuarDesde409';
         btnDescontinuar.className = 'btn btn-warning fw-semibold';
         btnDescontinuar.textContent = 'Descontinuar Producto';
-        if (modalEl) {
-            modalEl.appendChild(btnDescontinuar);
-        } else if (alertEl) {
-            alertEl.appendChild(btnDescontinuar);
-        }
+        (modalEl || alertEl)?.appendChild(btnDescontinuar);
     }
 
     return { modalEl, alertEl, detalleEl, btnDescontinuar };
 }
 
 function ocultarConflicto409() {
-    const doc = getDoc();
-    if (!doc) return;
-
-    const modalEl = doc.getElementById('modalConflicto409');
-    const alertEl = doc.getElementById('alertConflicto409');
+    const modalEl = document.getElementById('modalConflicto409');
+    const alertEl = document.getElementById('alertConflicto409');
 
     if (modal409Instancia && typeof modal409Instancia.hide === 'function') {
         modal409Instancia.hide();
     }
     if (modalEl) {
-        modalEl.classList?.remove('show');
+        modalEl.classList.remove('show');
         setElementVisibility(modalEl, false);
     }
     if (alertEl) {
@@ -738,10 +601,7 @@ function ocultarConflicto409() {
 
 // Despliega el modal/alerta dedicado para conflicto 409 con acción rápida de descontinuación (TASK-F3-05)
 function mostrarConflicto409(id, problemDetails = null) {
-    const doc = getDoc();
-    if (!doc) return null;
-
-    const { modalEl, alertEl, detalleEl, btnDescontinuar } = ensureConflict409Elements(doc);
+    const { modalEl, alertEl, detalleEl, btnDescontinuar } = ensureConflict409Elements();
     const numericId = Number(id);
 
     if (alertEl) {
@@ -759,31 +619,17 @@ function mostrarConflicto409(id, problemDetails = null) {
     if (btnDescontinuar) {
         btnDescontinuar.textContent = 'Descontinuar Producto';
         btnDescontinuar.dataset.id = String(numericId);
-        btnDescontinuar.setAttribute?.('data-id', String(numericId));
         btnDescontinuar.disabled = false;
-
-        const handler = async (e) => {
-            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        btnDescontinuar.onclick = async (e) => {
+            e?.preventDefault?.();
             const targetId = Number(btnDescontinuar.dataset.id || numericId);
-            return await manejarDescontinuacionProducto(targetId);
+            await manejarDescontinuacionProducto(targetId);
         };
-
-        btnDescontinuar.onclick = handler;
-        if (btnDescontinuar.listeners && typeof btnDescontinuar.listeners.set === 'function') {
-            btnDescontinuar.listeners.set('click', [handler]);
-        } else if (!btnDescontinuar.dataset.listener409Bound) {
-            btnDescontinuar.dataset.listener409Bound = 'true';
-            btnDescontinuar.addEventListener?.('click', handler);
-        }
     }
 
     if (modalEl) {
-        // En MockElement (pruebas unitarias), asegurar que modalEl.textContent también exponga el mensaje requerido
-        if (Object.prototype.hasOwnProperty.call(modalEl, 'textContent')) {
-            modalEl.textContent = CONFLICT_409_MESSAGE;
-        }
         setElementVisibility(modalEl, true);
-        modalEl.classList?.add('show');
+        modalEl.classList.add('show');
 
         if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
             try {
@@ -851,12 +697,8 @@ async function manejarEliminacionProducto(id, btnElement = null, { skipConfirm =
     const numericId = Number(id);
 
     if (!skipConfirm && btnElement !== null) {
-        const confirmFn = (typeof window !== 'undefined' && typeof window.confirm === 'function')
-            ? window.confirm.bind(window)
-            : (typeof confirm === 'function' ? confirm : null);
-        if (confirmFn) {
-            const confirmar = confirmFn(`¿Estás seguro de eliminar el producto #${numericId}?`);
-            if (confirmar === false) return { ok: false, cancelled: true };
+        if (!confirmAction(`¿Estás seguro de eliminar el producto #${numericId}?`)) {
+            return { ok: false, cancelled: true };
         }
     }
 
@@ -966,14 +808,12 @@ function inicializarTabla() {
     }));
 }
 
-function configurarEventos(doc = getDoc()) {
-    if (!doc) return;
-
-    const form = doc.getElementById('formProducto');
-    const btnNuevo = doc.getElementById('btnNuevoProducto');
-    const modalEl = doc.getElementById('modalProducto');
-    const btnCancelarModal = doc.getElementById('btnCancelarModalProducto');
-    const btnCerrar409 = doc.getElementById('btnCerrarConflicto409');
+function configurarEventos() {
+    const form = document.getElementById('formProducto');
+    const btnNuevo = document.getElementById('btnNuevoProducto');
+    const modalEl = document.getElementById('modalProducto');
+    const btnCancelarModal = document.getElementById('btnCancelarModalProducto');
+    const btnCerrar409 = document.getElementById('btnCerrarConflicto409');
 
     if (btnNuevo) {
         btnNuevo.addEventListener('click', () => {
@@ -983,13 +823,13 @@ function configurarEventos(doc = getDoc()) {
 
     if (modalEl) {
         modalEl.addEventListener('hidden.bs.modal', () => {
-            limpiarValidacionModal(doc);
+            limpiarValidacionModal();
         });
     }
 
     if (btnCancelarModal) {
         btnCancelarModal.addEventListener('click', () => {
-            limpiarValidacionModal(doc);
+            limpiarValidacionModal();
         });
     }
 
@@ -1005,17 +845,14 @@ function configurarEventos(doc = getDoc()) {
         });
     }
 
-    const tablaEl = doc.getElementById('tablaProductos');
+    const tablaEl = document.getElementById('tablaProductos');
     if (tablaEl) {
         tablaEl.addEventListener('click', async (e) => {
-            const target = e.target;
-            const btn = target && typeof target.closest === 'function'
-                ? target.closest('button[data-action]')
-                : target;
+            const btn = e?.target?.closest?.('button[data-action]');
             if (!btn) return;
 
-            const action = btn.dataset?.action || btn.getAttribute?.('data-action');
-            const id = parseInt(btn.dataset?.id || btn.getAttribute?.('data-id'), 10);
+            const action = btn.dataset.action;
+            const id = parseInt(btn.dataset.id, 10);
             if (Number.isNaN(id)) return;
 
             if (action === 'editar') {
@@ -1029,39 +866,23 @@ function configurarEventos(doc = getDoc()) {
     }
 }
 
-async function initProductsController(customDoc = null) {
-    const doc = getDoc(customDoc);
-    if (!doc) return;
-
-    const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)
-        || (typeof authService.getCurrentUser === 'function' && authService.getCurrentUser())
-        || await authService.checkSession();
-    if (!usuario) {
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './login.html';
-        }
-        return;
-    }
+async function initProductsController() {
+    const usuario = await initAuthenticatedView({
+        authService,
+        requiredPermission: 'canViewProductsAdmin'
+    });
+    if (!usuario) return;
 
     permisosActuales = normalizarPermisosProductos(resolveConnectedPermissions(usuario, authService));
-    if (!permisosActuales.canViewProductsAdmin) {
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './catalogo.html?error=403';
-        }
-        return;
-    }
-
-    initNavbar(usuario, authService);
     aplicarPermisosProductos(permisosActuales);
 
-    const modalEl = doc.getElementById('modalProducto');
+    const modalEl = document.getElementById('modalProducto');
     if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
         modalInstancia = new bootstrap.Modal(modalEl);
     }
 
     inicializarTabla();
-    configurarEventos(doc);
-
+    configurarEventos();
     await listarProductos();
 }
 
@@ -1074,6 +895,6 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
         ) {
             return;
         }
-        await initProductsController(document);
+        await initProductsController();
     });
 }

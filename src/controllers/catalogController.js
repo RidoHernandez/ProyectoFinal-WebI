@@ -5,7 +5,7 @@ import { orderService } from "../services/orderService.js";
 import {
     clearTbody,
     formatCurrency,
-    initNavbar,
+    initAuthenticatedView,
     resolveConnectedPermissions,
     setElementVisibility,
     showModal,
@@ -94,32 +94,28 @@ function filtrarProductosCatalogo(
 
 /**
  * Renderiza la cuadrícula de tarjetas de productos en #contenedorCatalogo
- * aplicando construcción segura del DOM y escape HTML contra XSS.
+ * aplicando construcción segura del DOM contra XSS.
  */
-function renderizarTarjetas(lista, doc = typeof document !== 'undefined' ? document : null, options = {}) {
+function renderizarTarjetas(lista, options = {}) {
     const items = Array.isArray(lista) ? lista : [];
     if (!options?.esFiltrado && items.length > 0 && productos.length === 0) {
         productos = [...items];
     }
 
-    if (!doc) return;
-
-    const contenedor = doc.getElementById('contenedorCatalogo');
+    const contenedor = document.getElementById('contenedorCatalogo');
     if (!contenedor) return;
 
-    const lblContador = doc.getElementById('lblTotalCatalogo');
+    const lblContador = document.getElementById('lblTotalCatalogo');
     if (lblContador) {
         lblContador.textContent = `${items.length} producto(s)`;
     }
 
     clearTbody(contenedor);
 
-    if (typeof doc.createElement !== 'function') return;
-
     if (items.length === 0) {
-        const colEmpty = doc.createElement('div');
+        const colEmpty = document.createElement('div');
         colEmpty.className = 'col-12';
-        const alertEmpty = doc.createElement('div');
+        const alertEmpty = document.createElement('div');
         alertEmpty.className = 'alert alert-info mb-0';
         alertEmpty.textContent = 'No hay productos disponibles con los criterios seleccionados.';
         colEmpty.appendChild(alertEmpty);
@@ -130,8 +126,7 @@ function renderizarTarjetas(lista, doc = typeof document !== 'undefined' ? docum
     for (const rawItem of items) {
         const prod = normalizarProductoCatalogo(rawItem);
         const stock = prod.unitsInStock;
-        const disponible = stock > 0;
-        const agotado = !disponible;
+        const agotado = stock <= 0;
         const descontinuado = prod.discontinued;
         const precioFormateado = formatCurrency(prod.unitPrice);
 
@@ -145,10 +140,10 @@ function renderizarTarjetas(lista, doc = typeof document !== 'undefined' ? docum
             ? 'Agotado'
             : `Disponible (Stock: ${stock})`;
 
-        const colEl = doc.createElement('div');
+        const colEl = document.createElement('div');
         colEl.className = 'col';
 
-        const cardEl = doc.createElement('div');
+        const cardEl = document.createElement('div');
         cardEl.className = cardClass;
         cardEl.setAttribute('data-product-id', String(prod.productId));
         cardEl.setAttribute('data-stock-status', agotado ? 'agotado' : 'disponible');
@@ -156,37 +151,37 @@ function renderizarTarjetas(lista, doc = typeof document !== 'undefined' ? docum
         cardEl.setAttribute('tabindex', '0');
         cardEl.setAttribute('aria-label', `Ver detalle de ${prod.productName}`);
 
-        const bodyEl = doc.createElement('div');
+        const bodyEl = document.createElement('div');
         bodyEl.className = 'card-body d-flex flex-column';
 
-        const headerEl = doc.createElement('div');
+        const headerEl = document.createElement('div');
         headerEl.className = 'd-flex justify-content-between align-items-start gap-2 mb-2';
 
-        const titleEl = doc.createElement('h5');
+        const titleEl = document.createElement('h5');
         titleEl.className = 'card-title fw-bold text-dark mb-0';
         titleEl.textContent = prod.productName;
 
-        const idBadgeEl = doc.createElement('span');
+        const idBadgeEl = document.createElement('span');
         idBadgeEl.className = 'badge bg-light text-secondary border';
         idBadgeEl.textContent = `#${prod.productId}`;
 
         headerEl.appendChild(titleEl);
         headerEl.appendChild(idBadgeEl);
 
-        const priceEl = doc.createElement('p');
+        const priceEl = document.createElement('p');
         priceEl.className = 'card-text text-primary fs-5 fw-semibold mb-3';
         priceEl.textContent = precioFormateado;
 
-        const footerEl = doc.createElement('div');
+        const footerEl = document.createElement('div');
         footerEl.className = 'mt-auto d-flex flex-wrap justify-content-between align-items-center gap-1';
 
-        const stockBadgeEl = doc.createElement('span');
+        const stockBadgeEl = document.createElement('span');
         stockBadgeEl.className = stockBadgeClass;
         stockBadgeEl.textContent = stockBadgeText;
         footerEl.appendChild(stockBadgeEl);
 
         if (descontinuado) {
-            const discBadgeEl = doc.createElement('span');
+            const discBadgeEl = document.createElement('span');
             discBadgeEl.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle badge-descontinuado';
             discBadgeEl.textContent = 'Descontinuado';
             footerEl.appendChild(discBadgeEl);
@@ -205,24 +200,12 @@ function renderizarTarjetas(lista, doc = typeof document !== 'undefined' ? docum
  * Configura los eventos de filtrado en tiempo real por texto, rango de precios
  * (mínimo y máximo), interruptor de disponibilidad y botón de limpiar filtros.
  */
-function configurarFiltrosCatalogo(arg = null, maybeDoc = null) {
-    let doc = typeof document !== 'undefined' ? document : null;
-    if (Array.isArray(arg)) {
-        productos = [...arg];
-        if (maybeDoc && typeof maybeDoc.getElementById === 'function') {
-            doc = maybeDoc;
-        }
-    } else if (arg && typeof arg.getElementById === 'function') {
-        doc = arg;
-    }
-
-    if (!doc) return null;
-
-    const txtBuscar = doc.getElementById('txtBuscarCatalogo');
-    const txtPrecioMin = doc.getElementById('txtPrecioMinCatalogo');
-    const txtPrecioMax = doc.getElementById('txtPrecioMaxCatalogo');
-    const chkSoloDisponibles = doc.getElementById('chkSoloDisponibles');
-    const btnLimpiar = doc.getElementById('btnLimpiarFiltrosCatalogo');
+function configurarFiltrosCatalogo() {
+    const txtBuscar = document.getElementById('txtBuscarCatalogo');
+    const txtPrecioMin = document.getElementById('txtPrecioMinCatalogo');
+    const txtPrecioMax = document.getElementById('txtPrecioMaxCatalogo');
+    const chkSoloDisponibles = document.getElementById('chkSoloDisponibles');
+    const btnLimpiar = document.getElementById('btnLimpiarFiltrosCatalogo');
 
     const aplicarFiltros = () => {
         const filtrados = filtrarProductosCatalogo(productos, {
@@ -232,7 +215,7 @@ function configurarFiltrosCatalogo(arg = null, maybeDoc = null) {
             soloDisponibles: Boolean(chkSoloDisponibles?.checked)
         });
 
-        renderizarTarjetas(filtrados, doc, { esFiltrado: true });
+        renderizarTarjetas(filtrados, { esFiltrado: true });
         return filtrados;
     };
 
@@ -272,15 +255,13 @@ function configurarFiltrosCatalogo(arg = null, maybeDoc = null) {
         btnLimpiar._catalogoBound = true;
         btnLimpiar.addEventListener('click', limpiarFiltros);
     }
-
-    return { aplicarFiltros, limpiarFiltros };
 }
 
 /**
- * Carga el catálogo comercial invocando productService.getAll() (con respaldo a getProducts()).
+ * Carga el catálogo comercial invocando productService.getAll().
  */
-async function cargarCatalogo(doc = typeof document !== 'undefined' ? document : null) {
-    const contenedor = doc ? doc.getElementById('contenedorCatalogo') : null;
+async function cargarCatalogo() {
+    const contenedor = document.getElementById('contenedorCatalogo');
 
     try {
         const respuesta = await productService.getAll();
@@ -296,22 +277,20 @@ async function cargarCatalogo(doc = typeof document !== 'undefined' ? document :
         }
 
         if (contenedor) {
-            renderizarTarjetas(productos, doc, { esFiltrado: true });
+            renderizarTarjetas(productos, { esFiltrado: true });
         }
         return productos;
     } catch (err) {
         console.warn("Aviso al cargar catálogo:", err?.message || err);
         if (contenedor) {
             clearTbody(contenedor);
-            if (doc && typeof doc.createElement === 'function') {
-                const colWarn = doc.createElement('div');
-                colWarn.className = 'col-12';
-                const alertWarn = doc.createElement('div');
-                alertWarn.className = 'alert alert-warning mb-0';
-                alertWarn.textContent = 'No se pudieron cargar los productos.';
-                colWarn.appendChild(alertWarn);
-                contenedor.appendChild(colWarn);
-            }
+            const colWarn = document.createElement('div');
+            colWarn.className = 'col-12';
+            const alertWarn = document.createElement('div');
+            alertWarn.className = 'alert alert-warning mb-0';
+            alertWarn.textContent = 'No se pudieron cargar los productos.';
+            colWarn.appendChild(alertWarn);
+            contenedor.appendChild(colWarn);
         }
         return [];
     }
@@ -399,16 +378,15 @@ function setFieldValidationState(el, invalid, feedbackEl = null, message = '') {
     }
 }
 
-function showCompraAlert(doc, message = '', visible = Boolean(message), variant = 'danger') {
-    const alertEl = doc?.getElementById('alertCompraCatalogo');
+function showCompraAlert(message = '', visible = Boolean(message), variant = 'danger') {
+    const alertEl = document.getElementById('alertCompraCatalogo');
     if (!alertEl) return;
     alertEl.className = `alert alert-${variant} py-2 px-3 small mb-3`;
     alertEl.textContent = visible ? String(message || '') : '';
     setElementVisibility(alertEl, visible);
 }
 
-function resetValidacionCompra(doc) {
-    if (!doc) return;
+function resetValidacionCompra() {
     const fields = [
         'txtCantidadCompra',
         'txtEnvioNombre',
@@ -417,18 +395,17 @@ function resetValidacionCompra(doc) {
         'txtEnvioPais'
     ];
     for (const id of fields) {
-        setFieldValidationState(doc.getElementById(id), false);
+        setFieldValidationState(document.getElementById(id), false);
     }
 }
 
 /**
  * Actualiza en tiempo real el total estimado de compra en el modal.
  */
-function actualizarTotalCompra(doc = typeof document !== 'undefined' ? document : null) {
-    if (!doc) return 0;
-    const prodId = doc.getElementById('compraProductoId')?.value;
-    const txtCantidad = doc.getElementById('txtCantidadCompra');
-    const lblTotal = doc.getElementById('lblTotalCompra');
+function actualizarTotalCompra() {
+    const prodId = document.getElementById('compraProductoId')?.value;
+    const txtCantidad = document.getElementById('txtCantidadCompra');
+    const lblTotal = document.getElementById('lblTotalCompra');
     const prod = findProductoEnCache(prodId);
 
     if (!prod || !lblTotal) return 0;
@@ -448,16 +425,15 @@ function actualizarTotalCompra(doc = typeof document !== 'undefined' ? document 
 /**
  * Abre el modal de detalle del producto seleccionado y muestra el formulario de compra si la cuenta tiene permiso.
  */
-function abrirModalProductoCatalogo(productId, doc = typeof document !== 'undefined' ? document : null) {
-    if (!doc) return null;
+function abrirModalProductoCatalogo(productId) {
     const prod = findProductoEnCache(productId);
     if (!prod) return null;
 
-    const modalEl = doc.getElementById('modalDetalleCatalogo');
+    const modalEl = document.getElementById('modalDetalleCatalogo');
     if (!modalEl) return null;
 
     const setText = (id, value) => {
-        const el = doc.getElementById(id);
+        const el = document.getElementById(id);
         if (el) el.textContent = String(value);
     };
 
@@ -467,7 +443,7 @@ function abrirModalProductoCatalogo(productId, doc = typeof document !== 'undefi
     setText('detCatalogoPrecio', formatCurrency(prod.unitPrice));
     setText('detCatalogoStock', prod.unitsInStock);
 
-    const estadoEl = doc.getElementById('detCatalogoEstado');
+    const estadoEl = document.getElementById('detCatalogoEstado');
     if (estadoEl) {
         if (prod.discontinued) {
             estadoEl.textContent = 'Descontinuado';
@@ -481,28 +457,28 @@ function abrirModalProductoCatalogo(productId, doc = typeof document !== 'undefi
         }
     }
 
-    showCompraAlert(doc, '', false);
-    setElementVisibility(doc.getElementById('resumenCompraCatalogo'), false);
-    resetValidacionCompra(doc);
+    showCompraAlert('', false);
+    setElementVisibility(document.getElementById('resumenCompraCatalogo'), false);
+    resetValidacionCompra();
 
-    const usuario = typeof authService.getCurrentUser === 'function' ? authService.getCurrentUser() : null;
+    const usuario = authService.getCurrentUser();
     const perms = resolveConnectedPermissions(usuario, authService);
-    const seccionCompra = doc.getElementById('seccionCompraCatalogo');
-    const footerSoloLectura = doc.getElementById('footerSoloLecturaCatalogo');
+    const seccionCompra = document.getElementById('seccionCompraCatalogo');
+    const footerSoloLectura = document.getElementById('footerSoloLecturaCatalogo');
 
     if (perms.canPurchaseCatalog) {
         setElementVisibility(seccionCompra, true);
         setElementVisibility(footerSoloLectura, false);
 
-        const hiddenId = doc.getElementById('compraProductoId');
+        const hiddenId = document.getElementById('compraProductoId');
         if (hiddenId) hiddenId.value = String(prod.productId);
 
-        const txtCantidad = doc.getElementById('txtCantidadCompra');
-        const txtNombre = doc.getElementById('txtEnvioNombre');
-        const txtDir = doc.getElementById('txtEnvioDireccion');
-        const txtCiudad = doc.getElementById('txtEnvioCiudad');
-        const txtPais = doc.getElementById('txtEnvioPais');
-        const btnComprar = doc.getElementById('btnConfirmarCompra');
+        const txtCantidad = document.getElementById('txtCantidadCompra');
+        const txtNombre = document.getElementById('txtEnvioNombre');
+        const txtDir = document.getElementById('txtEnvioDireccion');
+        const txtCiudad = document.getElementById('txtEnvioCiudad');
+        const txtPais = document.getElementById('txtEnvioPais');
+        const btnComprar = document.getElementById('btnConfirmarCompra');
 
         const puedeComprar = prod.unitsInStock > 0 && !prod.discontinued;
         if (txtCantidad) {
@@ -525,10 +501,10 @@ function abrirModalProductoCatalogo(productId, doc = typeof document !== 'undefi
             const motivo = prod.discontinued
                 ? 'Este producto está descontinuado y no se encuentra disponible para compra.'
                 : 'Este producto está agotado temporalmente.';
-            showCompraAlert(doc, motivo, true, 'warning');
+            showCompraAlert(motivo, true, 'warning');
         }
 
-        actualizarTotalCompra(doc);
+        actualizarTotalCompra();
     } else {
         setElementVisibility(seccionCompra, false);
         setElementVisibility(footerSoloLectura, true);
@@ -538,12 +514,11 @@ function abrirModalProductoCatalogo(productId, doc = typeof document !== 'undefi
     return prod;
 }
 
-function aplicarFiltrosActivos(doc) {
-    if (!doc) return;
-    const txtBuscar = doc.getElementById('txtBuscarCatalogo');
-    const txtPrecioMin = doc.getElementById('txtPrecioMinCatalogo');
-    const txtPrecioMax = doc.getElementById('txtPrecioMaxCatalogo');
-    const chkSoloDisponibles = doc.getElementById('chkSoloDisponibles');
+function aplicarFiltrosActivos() {
+    const txtBuscar = document.getElementById('txtBuscarCatalogo');
+    const txtPrecioMin = document.getElementById('txtPrecioMinCatalogo');
+    const txtPrecioMax = document.getElementById('txtPrecioMaxCatalogo');
+    const chkSoloDisponibles = document.getElementById('chkSoloDisponibles');
 
     const filtrados = filtrarProductosCatalogo(productos, {
         texto: txtBuscar?.value || '',
@@ -551,45 +526,44 @@ function aplicarFiltrosActivos(doc) {
         precioMax: txtPrecioMax?.value ?? null,
         soloDisponibles: Boolean(chkSoloDisponibles?.checked)
     });
-    renderizarTarjetas(filtrados, doc, { esFiltrado: true });
+    renderizarTarjetas(filtrados, { esFiltrado: true });
 }
 
 /**
  * Valida y procesa la compra del producto seleccionado descontando stock en el servidor.
  */
-async function procesarCompraCatalogo(event, doc = typeof document !== 'undefined' ? document : null) {
+async function procesarCompraCatalogo(event) {
     event?.preventDefault?.();
-    if (!doc) return false;
 
-    const usuario = typeof authService.getCurrentUser === 'function' ? authService.getCurrentUser() : null;
+    const usuario = authService.getCurrentUser();
     if (!resolveConnectedPermissions(usuario, authService).canPurchaseCatalog) {
-        showCompraAlert(doc, 'Tu cuenta no está habilitada para realizar compras desde el catálogo.', true);
+        showCompraAlert('Tu cuenta no está habilitada para realizar compras desde el catálogo.', true);
         return false;
     }
 
-    const prodId = doc.getElementById('compraProductoId')?.value;
+    const prodId = document.getElementById('compraProductoId')?.value;
     const prod = findProductoEnCache(prodId);
     if (!prod) {
-        showCompraAlert(doc, 'No se encontró el producto seleccionado.', true);
+        showCompraAlert('No se encontró el producto seleccionado.', true);
         return false;
     }
 
     if (prod.discontinued || prod.unitsInStock <= 0) {
-        showCompraAlert(doc, 'Este producto ya no está disponible para compra.', true, 'warning');
+        showCompraAlert('Este producto ya no está disponible para compra.', true, 'warning');
         return false;
     }
 
-    const txtCantidad = doc.getElementById('txtCantidadCompra');
-    const txtNombre = doc.getElementById('txtEnvioNombre');
-    const txtDir = doc.getElementById('txtEnvioDireccion');
-    const txtCiudad = doc.getElementById('txtEnvioCiudad');
-    const txtPais = doc.getElementById('txtEnvioPais');
+    const txtCantidad = document.getElementById('txtCantidadCompra');
+    const txtNombre = document.getElementById('txtEnvioNombre');
+    const txtDir = document.getElementById('txtEnvioDireccion');
+    const txtCiudad = document.getElementById('txtEnvioCiudad');
+    const txtPais = document.getElementById('txtEnvioPais');
 
     const qtyResult = validarCantidadCompra(txtCantidad?.value, prod.unitsInStock);
     setFieldValidationState(
         txtCantidad,
         !qtyResult.valid,
-        doc.getElementById('feedbackCantidadCompra'),
+        document.getElementById('feedbackCantidadCompra'),
         qtyResult.error || ''
     );
 
@@ -600,10 +574,10 @@ async function procesarCompraCatalogo(event, doc = typeof document !== 'undefine
         shipCountry: txtPais?.value
     });
 
-    setFieldValidationState(txtNombre, Boolean(shipResult.fieldErrors.shipName), doc.getElementById('feedbackEnvioNombre'), shipResult.fieldErrors.shipName || '');
-    setFieldValidationState(txtDir, Boolean(shipResult.fieldErrors.shipAddress), doc.getElementById('feedbackEnvioDireccion'), shipResult.fieldErrors.shipAddress || '');
-    setFieldValidationState(txtCiudad, Boolean(shipResult.fieldErrors.shipCity), doc.getElementById('feedbackEnvioCiudad'), shipResult.fieldErrors.shipCity || '');
-    setFieldValidationState(txtPais, Boolean(shipResult.fieldErrors.shipCountry), doc.getElementById('feedbackEnvioPais'), shipResult.fieldErrors.shipCountry || '');
+    setFieldValidationState(txtNombre, Boolean(shipResult.fieldErrors.shipName), document.getElementById('feedbackEnvioNombre'), shipResult.fieldErrors.shipName || '');
+    setFieldValidationState(txtDir, Boolean(shipResult.fieldErrors.shipAddress), document.getElementById('feedbackEnvioDireccion'), shipResult.fieldErrors.shipAddress || '');
+    setFieldValidationState(txtCiudad, Boolean(shipResult.fieldErrors.shipCity), document.getElementById('feedbackEnvioCiudad'), shipResult.fieldErrors.shipCity || '');
+    setFieldValidationState(txtPais, Boolean(shipResult.fieldErrors.shipCountry), document.getElementById('feedbackEnvioPais'), shipResult.fieldErrors.shipCountry || '');
 
     if (!qtyResult.valid || !shipResult.valid) {
         const firstInvalid = !qtyResult.valid
@@ -619,9 +593,9 @@ async function procesarCompraCatalogo(event, doc = typeof document !== 'undefine
 
     const cantidad = qtyResult.value;
     const nuevoStock = prod.unitsInStock - cantidad;
-    const btnComprar = doc.getElementById('btnConfirmarCompra');
+    const btnComprar = document.getElementById('btnConfirmarCompra');
 
-    showCompraAlert(doc, '', false);
+    showCompraAlert('', false);
     if (btnComprar) {
         btnComprar.disabled = true;
         btnComprar.textContent = 'Procesando...';
@@ -649,12 +623,12 @@ async function procesarCompraCatalogo(event, doc = typeof document !== 'undefine
             return item;
         });
 
-        aplicarFiltrosActivos(doc);
+        aplicarFiltrosActivos();
 
-        const stockEl = doc.getElementById('detCatalogoStock');
+        const stockEl = document.getElementById('detCatalogoStock');
         if (stockEl) stockEl.textContent = String(nuevoStock);
 
-        const estadoEl = doc.getElementById('detCatalogoEstado');
+        const estadoEl = document.getElementById('detCatalogoEstado');
         if (estadoEl && nuevoStock <= 0) {
             estadoEl.textContent = 'Agotado';
             estadoEl.className = 'badge bg-danger-subtle text-danger border border-danger-subtle';
@@ -668,7 +642,7 @@ async function procesarCompraCatalogo(event, doc = typeof document !== 'undefine
         const { shipName, shipAddress, shipCity, shipCountry } = shipResult.values;
 
         const setResText = (id, val) => {
-            const el = doc.getElementById(id);
+            const el = document.getElementById(id);
             if (el) el.textContent = String(val);
         };
         setResText('resCompraOrdenId', createdOrder?.orderId ? `#${createdOrder.orderId}` : '-');
@@ -678,12 +652,12 @@ async function procesarCompraCatalogo(event, doc = typeof document !== 'undefine
         setResText('resCompraDestino', `${shipName} — ${shipAddress}, ${shipCity}, ${shipCountry}`);
         setResText('resCompraStockRestante', nuevoStock);
 
-        setElementVisibility(doc.getElementById('seccionCompraCatalogo'), false);
-        setElementVisibility(doc.getElementById('resumenCompraCatalogo'), true);
-        setElementVisibility(doc.getElementById('footerSoloLecturaCatalogo'), true);
+        setElementVisibility(document.getElementById('seccionCompraCatalogo'), false);
+        setElementVisibility(document.getElementById('resumenCompraCatalogo'), true);
+        setElementVisibility(document.getElementById('footerSoloLecturaCatalogo'), true);
         return true;
     } catch (err) {
-        showCompraAlert(doc, extractProblemMessage(err, 'No se pudo completar la compra. Intenta nuevamente.'), true);
+        showCompraAlert(extractProblemMessage(err, 'No se pudo completar la compra. Intenta nuevamente.'), true);
         return false;
     } finally {
         if (btnComprar) {
@@ -696,10 +670,8 @@ async function procesarCompraCatalogo(event, doc = typeof document !== 'undefine
 /**
  * Configura la apertura del modal al hacer clic/activar tarjetas y los eventos del formulario de compra.
  */
-function configurarModalCatalogo(doc = typeof document !== 'undefined' ? document : null) {
-    if (!doc) return;
-
-    const contenedor = doc.getElementById('contenedorCatalogo');
+function configurarModalCatalogo() {
+    const contenedor = document.getElementById('contenedorCatalogo');
     if (contenedor && !contenedor._modalCatalogoBound) {
         contenedor._modalCatalogoBound = true;
 
@@ -712,7 +684,7 @@ function configurarModalCatalogo(doc = typeof document !== 'undefined' ? documen
         contenedor.addEventListener('click', (e) => {
             const productId = resolveCardProductId(e?.target);
             if (productId) {
-                abrirModalProductoCatalogo(productId, doc);
+                abrirModalProductoCatalogo(productId);
             }
         });
 
@@ -721,20 +693,20 @@ function configurarModalCatalogo(doc = typeof document !== 'undefined' ? documen
             const productId = resolveCardProductId(e?.target);
             if (productId) {
                 e.preventDefault?.();
-                abrirModalProductoCatalogo(productId, doc);
+                abrirModalProductoCatalogo(productId);
             }
         });
     }
 
-    const txtCantidad = doc.getElementById('txtCantidadCompra');
+    const txtCantidad = document.getElementById('txtCantidadCompra');
     if (txtCantidad && !txtCantidad._compraBound) {
         txtCantidad._compraBound = true;
-        txtCantidad.addEventListener('input', () => actualizarTotalCompra(doc));
-        txtCantidad.addEventListener('change', () => actualizarTotalCompra(doc));
+        txtCantidad.addEventListener('input', actualizarTotalCompra);
+        txtCantidad.addEventListener('change', actualizarTotalCompra);
     }
 
     const clearFieldErrorOnInput = (id) => {
-        const el = doc.getElementById(id);
+        const el = document.getElementById(id);
         if (el && !el._compraClearBound) {
             el._compraClearBound = true;
             el.addEventListener('input', () => setFieldValidationState(el, false));
@@ -745,17 +717,17 @@ function configurarModalCatalogo(doc = typeof document !== 'undefined' ? documen
     clearFieldErrorOnInput('txtEnvioCiudad');
     clearFieldErrorOnInput('txtEnvioPais');
 
-    const formCompra = doc.getElementById('formCompraCatalogo');
+    const formCompra = document.getElementById('formCompraCatalogo');
     if (formCompra && !formCompra._compraBound) {
         formCompra._compraBound = true;
-        formCompra.addEventListener('submit', (e) => procesarCompraCatalogo(e, doc));
+        formCompra.addEventListener('submit', procesarCompraCatalogo);
     }
 
-    const modalEl = doc.getElementById('modalDetalleCatalogo');
+    const modalEl = document.getElementById('modalDetalleCatalogo');
     if (modalEl) {
         bindModalDismiss(modalEl, () => {
-            showCompraAlert(doc, '', false);
-            resetValidacionCompra(doc);
+            showCompraAlert('', false);
+            resetValidacionCompra();
         });
     }
 }
@@ -763,23 +735,13 @@ function configurarModalCatalogo(doc = typeof document !== 'undefined' ? documen
 /**
  * Inicializa la vista de catálogo comercial.
  */
-async function initCatalogController(doc = typeof document !== 'undefined' ? document : null) {
-    if (!doc) return;
+async function initCatalogController() {
+    const usuario = await initAuthenticatedView({ authService });
+    if (!usuario) return;
 
-    const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)
-        || (typeof authService.getCurrentUser === 'function' && authService.getCurrentUser())
-        || await authService.checkSession();
-    if (!usuario) {
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './login.html';
-        }
-        return;
-    }
-
-    initNavbar(usuario, authService);
-    configurarFiltrosCatalogo(doc);
-    configurarModalCatalogo(doc);
-    await cargarCatalogo(doc);
+    configurarFiltrosCatalogo();
+    configurarModalCatalogo();
+    await cargarCatalogo();
 }
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
@@ -787,6 +749,6 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
         if (document.body?.getAttribute?.('data-auth-blocked') || !authService.isAuthenticated()) {
             return;
         }
-        await initCatalogController(document);
+        await initCatalogController();
     });
 }

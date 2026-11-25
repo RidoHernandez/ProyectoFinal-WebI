@@ -16,8 +16,7 @@ const ALLOWED_VIEWS = new Set([
     './productos.html',
     './catalogo.html',
     './clientes.html',
-    './pedidos.html',
-    './ordenes.html'
+    './pedidos.html'
 ]);
 
 const PERMISSION_KEYS = Object.freeze([
@@ -347,26 +346,6 @@ export const authService = {
             return user.token;
         }
         return httpGetAuthToken();
-    },
-
-    async checkSession() {
-        const user = this.getCurrentUser();
-        if (!user) {
-            return null;
-        }
-
-        return {
-            autenticado: true,
-            userId: user.userId,
-            username: user.username,
-            nombre: user.username,
-            token: user.token,
-            tokenType: user.tokenType,
-            expiresAt: user.expiresAt,
-            authenticatedAt: user.authenticatedAt,
-            defaultView: user.defaultView,
-            permissions: user.permissions
-        };
     },
 
     async refreshProfile() {

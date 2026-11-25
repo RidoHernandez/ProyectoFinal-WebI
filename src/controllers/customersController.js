@@ -6,9 +6,7 @@ import {
     baseTableOptions,
     escapeHtml,
     safeTextRender,
-    initNavbar,
-    clearTbody,
-    getDoc,
+    initAuthenticatedView,
     setElementVisibility,
     extractProblemMessage,
     showModal,
@@ -20,30 +18,38 @@ authGuard('canViewCustomers');
 
 const REQUIRED_PERMISSION = 'canViewCustomers';
 
-let customersCache = [];
 let tabla = null;
 
-function showCustomersAlert(doc, message = '', visible = Boolean(message)) {
-    const alertEl = doc?.getElementById('alertClientes');
+function showCustomersAlert(message = '', visible = Boolean(message)) {
+    const alertEl = document.getElementById('alertClientes');
     if (!alertEl) return;
     alertEl.textContent = visible ? String(message || '') : '';
     setElementVisibility(alertEl, visible);
 }
 
-function setDetailModalState(
-    doc,
-    {
-        customerId = '-',
-        companyName = '-',
-        contactName = '-',
-        errorMessage = ''
-    } = {}
-) {
-    if (!doc) return;
-    const idEl = doc.getElementById('detClienteId');
-    const empresaEl = doc.getElementById('detClienteEmpresa');
-    const contactoEl = doc.getElementById('detClienteContacto');
-    const alertEl = doc.getElementById('alertDetalleCliente');
+function setTableStatusMessage(message) {
+    const tbody = document.getElementById('tbodyClientes');
+    if (!tbody) return;
+    tbody.textContent = '';
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4;
+    td.className = 'text-center text-muted py-3';
+    td.textContent = message;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+}
+
+function setDetailModalState({
+    customerId = '-',
+    companyName = '-',
+    contactName = '-',
+    errorMessage = ''
+} = {}) {
+    const idEl = document.getElementById('detClienteId');
+    const empresaEl = document.getElementById('detClienteEmpresa');
+    const contactoEl = document.getElementById('detClienteContacto');
+    const alertEl = document.getElementById('alertDetalleCliente');
 
     if (idEl) idEl.textContent = String(customerId || '-');
     if (empresaEl) empresaEl.textContent = String(companyName || '-');
@@ -51,72 +57,6 @@ function setDetailModalState(
     if (alertEl) {
         alertEl.textContent = errorMessage ? String(errorMessage) : '';
         setElementVisibility(alertEl, Boolean(errorMessage));
-    }
-}
-
-function resetCustomersState() {
-    customersCache = [];
-    tabla = null;
-}
-
-// Renderiza la tabla sin DataTables usando únicamente createElement y textContent (anti-XSS)
-function renderizarTablaClientesFallback(lista = customersCache, customDoc = null) {
-    const doc = getDoc(customDoc);
-    if (!doc) return;
-
-    const tbody = doc.getElementById('tbodyClientes');
-    if (!tbody) return;
-
-    clearTbody(tbody);
-    const items = Array.isArray(lista) ? lista : [];
-
-    if (items.length === 0) {
-        const trEmpty = doc.createElement('tr');
-        trEmpty.setAttribute?.('data-empty', 'true');
-        const tdEmpty = doc.createElement('td');
-        tdEmpty.colSpan = 4;
-        tdEmpty.setAttribute?.('colspan', '4');
-        tdEmpty.className = 'text-center text-muted py-3';
-        tdEmpty.textContent = 'No se encontraron clientes.';
-        trEmpty.appendChild(tdEmpty);
-        tbody.appendChild(trEmpty);
-        return;
-    }
-
-    for (const cliente of items) {
-        const customerId = String(cliente?.customerId ?? '');
-        const companyName = String(cliente?.companyName || '-');
-        const contactName = String(cliente?.contactName || 'Sin contacto');
-
-        const tr = doc.createElement('tr');
-        tr.setAttribute?.('data-customer-id', customerId);
-
-        const tdId = doc.createElement('td');
-        const strongId = doc.createElement('strong');
-        strongId.textContent = customerId;
-        tdId.appendChild(strongId);
-
-        const tdCompany = doc.createElement('td');
-        tdCompany.textContent = companyName;
-
-        const tdContact = doc.createElement('td');
-        tdContact.textContent = contactName;
-
-        const tdActions = doc.createElement('td');
-        tdActions.className = 'text-center text-nowrap';
-        const btnVer = doc.createElement('button');
-        btnVer.type = 'button';
-        btnVer.className = 'btn btn-sm btn-outline-primary';
-        btnVer.setAttribute('data-action', 'ver');
-        btnVer.setAttribute('data-id', customerId);
-        btnVer.textContent = 'Ver Detalle';
-        tdActions.appendChild(btnVer);
-
-        tr.appendChild(tdId);
-        tr.appendChild(tdCompany);
-        tr.appendChild(tdContact);
-        tr.appendChild(tdActions);
-        tbody.appendChild(tr);
     }
 }
 
@@ -147,29 +87,27 @@ function inicializarTabla() {
     }));
 }
 
-async function listarClientes(customDoc = null) {
-    const doc = getDoc(customDoc);
-    showCustomersAlert(doc, '', false);
+async function listarClientes() {
+    showCustomersAlert('', false);
 
     try {
         const data = await customerService.getAll();
-        customersCache = Array.isArray(data) ? data : [];
+        const customers = Array.isArray(data) ? data : [];
 
-        const lblTotal = doc?.getElementById('lblTotalClientes');
+        const lblTotal = document.getElementById('lblTotalClientes');
         if (lblTotal) {
-            lblTotal.textContent = String(customersCache.length);
+            lblTotal.textContent = String(customers.length);
         }
 
         if (tabla) {
-            tabla.clear().rows.add(customersCache).draw();
-        } else {
-            renderizarTablaClientesFallback(customersCache, doc);
+            tabla.clear().rows.add(customers).draw();
+        } else if (customers.length === 0) {
+            setTableStatusMessage('No se encontraron clientes.');
         }
 
-        return customersCache;
+        return customers;
     } catch (err) {
-        customersCache = [];
-        const lblTotal = doc?.getElementById('lblTotalClientes');
+        const lblTotal = document.getElementById('lblTotalClientes');
         if (lblTotal) {
             lblTotal.textContent = '0';
         }
@@ -177,27 +115,26 @@ async function listarClientes(customDoc = null) {
         if (tabla) {
             tabla.clear().draw();
         } else {
-            renderizarTablaClientesFallback([], doc);
+            setTableStatusMessage('No se pudieron cargar los clientes.');
         }
 
         const msg = extractProblemMessage(err, 'No se pudieron cargar los clientes.');
-        showCustomersAlert(doc, msg, true);
+        showCustomersAlert(msg, true);
         return [];
     }
 }
 
-async function verDetalleCliente(customerId, customDoc = null) {
-    const doc = getDoc(customDoc);
+async function verDetalleCliente(customerId) {
     const validation = validateCustomerId(customerId);
 
     if (!validation.valid) {
-        showCustomersAlert(doc, validation.error, true);
+        showCustomersAlert(validation.error, true);
         return { ok: false, status: 400, message: validation.error };
     }
 
-    const modalEl = doc?.getElementById('modalDetalleCliente');
+    const modalEl = document.getElementById('modalDetalleCliente');
     showModal(modalEl);
-    setDetailModalState(doc, {
+    setDetailModalState({
         customerId: validation.value,
         companyName: 'Cargando...',
         contactName: 'Cargando...',
@@ -206,7 +143,7 @@ async function verDetalleCliente(customerId, customDoc = null) {
 
     try {
         const customer = await customerService.getById(validation.value);
-        setDetailModalState(doc, {
+        setDetailModalState({
             customerId: customer?.customerId || validation.value,
             companyName: customer?.companyName || 'Sin empresa',
             contactName: customer?.contactName || 'Sin contacto registrado',
@@ -216,7 +153,7 @@ async function verDetalleCliente(customerId, customDoc = null) {
     } catch (err) {
         const status = Number(err?.status || err?.problemDetails?.status) || 500;
         const msg = extractProblemMessage(err, 'No se pudo cargar el detalle del cliente.');
-        setDetailModalState(doc, {
+        setDetailModalState({
             customerId: validation.value,
             companyName: '-',
             contactName: '-',
@@ -226,65 +163,39 @@ async function verDetalleCliente(customerId, customDoc = null) {
     }
 }
 
-function configurarEventos(doc) {
-    if (!doc) return;
+function configurarEventos() {
+    const tablaEl = document.getElementById('tablaClientes');
+    if (tablaEl && tablaEl.dataset.customersBound !== 'true') {
+        tablaEl.dataset.customersBound = 'true';
+        tablaEl.addEventListener('click', async (e) => {
+            const btn = e?.target?.closest?.('button[data-action]');
+            if (!btn) return;
 
-    const tablaEl = doc.getElementById('tablaClientes');
-    if (tablaEl) {
-        if (!tablaEl.dataset) tablaEl.dataset = {};
-        if (tablaEl.dataset.customersBound !== 'true') {
-            tablaEl.dataset.customersBound = 'true';
-            tablaEl.addEventListener('click', async (e) => {
-                const target = e?.target;
-                const btn = target && typeof target.closest === 'function'
-                    ? target.closest('button[data-action]')
-                    : target;
-                if (!btn) return;
-
-                const action = btn.dataset?.action || btn.getAttribute?.('data-action');
-                const customerId = btn.dataset?.id || btn.getAttribute?.('data-id');
-                if (action === 'ver' && customerId) {
-                    await verDetalleCliente(customerId, doc);
-                }
-            });
-        }
+            const action = btn.dataset.action;
+            const customerId = btn.dataset.id;
+            if (action === 'ver' && customerId) {
+                await verDetalleCliente(customerId);
+            }
+        });
     }
 
-    const modalEl = doc.getElementById('modalDetalleCliente');
+    const modalEl = document.getElementById('modalDetalleCliente');
     if (modalEl) {
-        bindModalDismiss(modalEl, () => setDetailModalState(doc));
+        bindModalDismiss(modalEl, () => setDetailModalState());
     }
 }
 
-async function initCustomersController(customDoc = null) {
-    const doc = getDoc(customDoc);
-    if (!doc) return;
+async function initCustomersController() {
+    const usuario = await initAuthenticatedView({
+        authService,
+        requiredPermission: REQUIRED_PERMISSION
+    });
+    if (!usuario) return;
 
-    if (!authService.isAuthenticated() || !authService.hasPermission(REQUIRED_PERMISSION)) {
-        return;
-    }
-
-    const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)
-        || authService.getCurrentUser()
-        || await authService.checkSession();
-    if (!usuario) {
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './login.html';
-        }
-        return;
-    }
-    if (!authService.hasPermission(REQUIRED_PERMISSION)) {
-        if (typeof window !== 'undefined' && window.location) {
-            window.location.href = './catalogo.html?error=403';
-        }
-        return;
-    }
-
-    resetCustomersState();
-    initNavbar(usuario, authService);
+    tabla = null;
     inicializarTabla();
-    configurarEventos(doc);
-    await listarClientes(doc);
+    configurarEventos();
+    await listarClientes();
 }
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
@@ -296,6 +207,6 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
         ) {
             return;
         }
-        await initCustomersController(document);
+        await initCustomersController();
     });
 }

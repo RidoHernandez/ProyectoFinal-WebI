@@ -3,13 +3,19 @@ import { extractProblemMessage } from '../api/httpClient.js';
 
 export { escapeHtml, extractProblemMessage };
 
-export function getDoc(customDoc = null) {
-    if (customDoc) return customDoc;
-    return typeof document !== 'undefined' ? document : null;
-}
-
 // Traducción oficial de DataTables al español
 const DT_LANGUAGE_URL = 'https://cdn.datatables.net/plug-ins/2.1.8/i18n/es-MX.json';
+
+// Confirmación centralizada de acciones sensibles en navegador
+export function confirmAction(message) {
+    if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        return Boolean(window.confirm(message));
+    }
+    if (typeof globalThis !== 'undefined' && typeof globalThis.confirm === 'function') {
+        return Boolean(globalThis.confirm(message));
+    }
+    return false;
+}
 
 // Renderizador seguro para columnas de texto en DataTables (DataTable.render.text() + respaldo escapeHtml)
 export function safeTextRender(fallback = '-') {
@@ -104,9 +110,6 @@ export function resolveConnectedPermissions(usuario, authService) {
 
 export function clearTbody(tbody) {
     if (!tbody) return;
-    if (Array.isArray(tbody.children)) {
-        tbody.children.length = 0;
-    }
     tbody.textContent = '';
 }
 
@@ -262,7 +265,7 @@ function renderFlashErrorBanner() {
 }
 
 // Inicializa el navbar dinámicamente según las capacidades de UI devueltas por el backend (sin exponer roles)
-export function initNavbar(usuario, authService) {
+function initNavbar(usuario, authService) {
     if (typeof document === 'undefined') return;
 
     const currentUser = authService?.getCurrentUser?.() || usuario || null;
@@ -294,7 +297,7 @@ export function initNavbar(usuario, authService) {
 
         const isProductsLink = href.includes('productos.html');
         const isCustomersLink = href.includes('clientes.html');
-        const isSharedLink = href.includes('catalogo.html') || href.includes('pedidos.html') || href.includes('ordenes.html');
+        const isSharedLink = href.includes('catalogo.html') || href.includes('pedidos.html');
 
         if (isProductsLink) {
             setElementVisibility(link, canViewProductsAdmin);
@@ -330,17 +333,45 @@ export function initNavbar(usuario, authService) {
     if (btnLogout && authService) {
         btnLogout.onclick = (e) => {
             if (e && typeof e.preventDefault === 'function') e.preventDefault();
-            const confirmFn = (typeof window !== 'undefined' && typeof window.confirm === 'function')
-                ? window.confirm.bind(window)
-                : (typeof confirm === 'function' ? confirm : null);
-            if (confirmFn) {
-                const confirmado = confirmFn('¿Deseas cerrar tu sesión activa?');
-                if (confirmado === false) return;
-            }
+            if (!confirmAction('¿Deseas cerrar tu sesión activa?')) return;
             authService.logout();
         };
     }
 
     // 4. Mostrar alerta 403 si hubo redirección por permisos insuficientes
     renderFlashErrorBanner();
+}
+
+// Arranque común de vistas autenticadas: refresca perfil, verifica permisos, inicializa navbar y banner 403
+export async function initAuthenticatedView({ authService, requiredPermission = null } = {}) {
+    if (typeof document === 'undefined' || !authService) return null;
+
+    if (!authService.isAuthenticated()) {
+        return null;
+    }
+    if (requiredPermission && !authService.hasPermission(requiredPermission)) {
+        return null;
+    }
+
+    const usuario = (await authService.refreshProfile()) || authService.getCurrentUser();
+    if (!usuario) {
+        if (
+            typeof window !== 'undefined' &&
+            window.location &&
+            !String(window.location.href || '').includes('login.html')
+        ) {
+            window.location.href = './login.html';
+        }
+        return null;
+    }
+
+    if (requiredPermission && !authService.hasPermission(requiredPermission)) {
+        if (typeof window !== 'undefined' && window.location) {
+            window.location.href = './catalogo.html?error=403';
+        }
+        return null;
+    }
+
+    initNavbar(usuario, authService);
+    return usuario;
 }

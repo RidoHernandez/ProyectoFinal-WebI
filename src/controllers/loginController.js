@@ -178,20 +178,12 @@ function hideAlert(alertEl) {
     alertEl.classList.add('d-none');
 }
 
-async function initLoginController(doc = typeof document !== 'undefined' ? document : null) {
-    if (!doc) return;
+async function initLoginController() {
+    if (typeof document === 'undefined') return;
     clearActiveLockoutInterval();
 
     // 1. Si el usuario ya tiene sesión válida y activa, redirigir a la vista inicial autorizada por el backend
-    let alreadyAuthenticated = false;
-    if (typeof authService.isAuthenticated === 'function') {
-        alreadyAuthenticated = Boolean(authService.isAuthenticated());
-    } else if (typeof authService.checkSession === 'function') {
-        const current = await authService.checkSession();
-        alreadyAuthenticated = Boolean(current && current.autenticado);
-    }
-
-    if (alreadyAuthenticated) {
+    if (authService.isAuthenticated()) {
         if (typeof window !== 'undefined' && window.location) {
             window.location.href = resolveRedirectPath();
         }
@@ -199,36 +191,36 @@ async function initLoginController(doc = typeof document !== 'undefined' ? docum
     }
 
     // Elementos del DOM
-    const tabLogin = doc.getElementById('tabLogin');
-    const tabRegister = doc.getElementById('tabRegister');
-    const paneLogin = doc.getElementById('paneLogin');
-    const paneRegister = doc.getElementById('paneRegister');
+    const tabLogin = document.getElementById('tabLogin');
+    const tabRegister = document.getElementById('tabRegister');
+    const paneLogin = document.getElementById('paneLogin');
+    const paneRegister = document.getElementById('paneRegister');
 
-    const formLogin = doc.getElementById('formLogin');
-    const txtLoginUsername = doc.getElementById('txtLoginUsername');
-    const txtLoginPassword = doc.getElementById('txtLoginPassword');
-    const errLoginUsername = doc.getElementById('errLoginUsername');
-    const errLoginPassword = doc.getElementById('errLoginPassword');
-    const btnLogin = doc.getElementById('btnLogin');
-    const lockoutBanner = doc.getElementById('lockoutBanner');
-    const lblLockoutCountdown = doc.getElementById('lblLockoutCountdown');
-    const captchaContainer = doc.getElementById('captchaContainer');
-    const lblCaptchaQuestion = doc.getElementById('lblCaptchaQuestion');
-    const txtCaptchaAnswer = doc.getElementById('txtCaptchaAnswer');
-    const btnRefreshCaptcha = doc.getElementById('btnRefreshCaptcha');
-    const errCaptcha = doc.getElementById('errCaptcha');
+    const formLogin = document.getElementById('formLogin');
+    const txtLoginUsername = document.getElementById('txtLoginUsername');
+    const txtLoginPassword = document.getElementById('txtLoginPassword');
+    const errLoginUsername = document.getElementById('errLoginUsername');
+    const errLoginPassword = document.getElementById('errLoginPassword');
+    const btnLogin = document.getElementById('btnLogin');
+    const lockoutBanner = document.getElementById('lockoutBanner');
+    const lblLockoutCountdown = document.getElementById('lblLockoutCountdown');
+    const captchaContainer = document.getElementById('captchaContainer');
+    const lblCaptchaQuestion = document.getElementById('lblCaptchaQuestion');
+    const txtCaptchaAnswer = document.getElementById('txtCaptchaAnswer');
+    const btnRefreshCaptcha = document.getElementById('btnRefreshCaptcha');
+    const errCaptcha = document.getElementById('errCaptcha');
 
-    const formRegister = doc.getElementById('formRegister');
-    const txtRegUsername = doc.getElementById('txtRegUsername');
-    const txtRegEmail = doc.getElementById('txtRegEmail');
-    const txtRegPassword = doc.getElementById('txtRegPassword');
-    const errRegUsername = doc.getElementById('errRegUsername');
-    const errRegEmail = doc.getElementById('errRegEmail');
-    const errRegPassword = doc.getElementById('errRegPassword');
-    const btnRegister = doc.getElementById('btnRegister');
+    const formRegister = document.getElementById('formRegister');
+    const txtRegUsername = document.getElementById('txtRegUsername');
+    const txtRegEmail = document.getElementById('txtRegEmail');
+    const txtRegPassword = document.getElementById('txtRegPassword');
+    const errRegUsername = document.getElementById('errRegUsername');
+    const errRegEmail = document.getElementById('errRegEmail');
+    const errRegPassword = document.getElementById('errRegPassword');
+    const btnRegister = document.getElementById('btnRegister');
 
-    const alertError = doc.getElementById('alertError');
-    const alertSuccess = doc.getElementById('alertSuccess');
+    const alertError = document.getElementById('alertError');
+    const alertSuccess = document.getElementById('alertSuccess');
 
     // 2. Verificar parámetros de URL (ej. ?reason=session_expired)
     if (typeof window !== 'undefined' && window.location) {
@@ -653,6 +645,6 @@ async function initLoginController(doc = typeof document !== 'undefined' ? docum
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('DOMContentLoaded', () => {
-        initLoginController(document);
+        initLoginController();
     });
 }
