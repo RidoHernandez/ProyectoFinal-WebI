@@ -14,10 +14,10 @@ import {
     bindModalDismiss
 } from "../utils/tableHelpers.js";
 
-// Guardia de navegación síncrona como primera instrucción ejecutable (TASK-F2-04 / TASK-F4-02)
-authGuard(['ADMIN', 'EMPLEADO']);
+// Guardia de navegación síncrona como primera instrucción ejecutable
+authGuard('canViewCustomers');
 
-const ALLOWED_ROLES = ['ADMIN', 'EMPLEADO'];
+const REQUIRED_PERMISSION = 'canViewCustomers';
 
 let customersCache = [];
 let tabla = null;
@@ -288,12 +288,25 @@ export async function initCustomersController(customDoc = null) {
     const doc = getDoc(customDoc);
     if (!doc) return;
 
-    if (!authService.isAuthenticated() || !authService.hasRole(ALLOWED_ROLES)) {
+    if (!authService.isAuthenticated() || !authService.hasPermission(REQUIRED_PERMISSION)) {
         return;
     }
 
-    const usuario = authService.getCurrentUser() || await authService.checkSession();
-    if (!usuario) return;
+    const usuario = (typeof authService.refreshProfile === 'function' ? await authService.refreshProfile() : null)
+        || authService.getCurrentUser()
+        || await authService.checkSession();
+    if (!usuario) {
+        if (typeof window !== 'undefined' && window.location) {
+            window.location.href = './login.html';
+        }
+        return;
+    }
+    if (!authService.hasPermission(REQUIRED_PERMISSION)) {
+        if (typeof window !== 'undefined' && window.location) {
+            window.location.href = './catalogo.html?error=403';
+        }
+        return;
+    }
 
     resetCustomersState();
     initNavbar(usuario, authService);
@@ -307,7 +320,7 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
         if (
             document.body?.getAttribute?.('data-auth-blocked') ||
             !authService.isAuthenticated() ||
-            !authService.hasRole(ALLOWED_ROLES)
+            !authService.hasPermission(REQUIRED_PERMISSION)
         ) {
             return;
         }

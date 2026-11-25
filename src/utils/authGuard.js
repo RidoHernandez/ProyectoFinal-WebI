@@ -1,7 +1,5 @@
-import { authService, ROLES, purgeResidualLocalStorage } from "../services/authService.js";
+import { authService, purgeResidualLocalStorage } from "../services/authService.js";
 import { STORAGE_KEYS } from "../api/config.js";
-
-export { ROLES };
 
 export function consumeAuthFlashError() {
     try {
@@ -18,7 +16,7 @@ export function consumeAuthFlashError() {
     return null;
 }
 
-export function authGuard(allowedRoles = []) {
+export function authGuard(requiredPermissions = null) {
     purgeResidualLocalStorage();
 
     if (!authService.isAuthenticated()) {
@@ -37,13 +35,12 @@ export function authGuard(allowedRoles = []) {
         return false;
     }
 
-    const rolesList = typeof allowedRoles === 'string'
-        ? [allowedRoles]
-        : (Array.isArray(allowedRoles) ? allowedRoles : []);
+    const permList = typeof requiredPermissions === 'string'
+        ? [requiredPermissions]
+        : (Array.isArray(requiredPermissions) ? requiredPermissions : []);
 
-    if (rolesList.length > 0 && !authService.hasRole(rolesList)) {
-        const currentRole = authService.getUserRole() || 'USUARIO';
-        const flashMessage = `Acceso denegado (403): Tu perfil (${currentRole}) no tiene permisos para acceder a esa sección.`;
+    if (permList.length > 0 && !authService.hasPermission(permList)) {
+        const flashMessage = 'Acceso denegado (403): No tienes permisos para acceder a esa sección.';
 
         try {
             if (typeof sessionStorage !== 'undefined') {

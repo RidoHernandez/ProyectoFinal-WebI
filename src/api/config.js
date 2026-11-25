@@ -2,45 +2,27 @@ export const API_BASE_URL = 'https://localhost:7039/api';
 export const DEFAULT_BASE_URL = 'https://localhost:7039';
 
 export const STORAGE_KEYS = Object.freeze({
-    API_URL: 'northwind_api_url',
     API_KEY: 'northwind_api_key',
     AUTH_SESSION: 'auth_session',
     AUTH_FLASH_ERROR: 'auth_flash_error'
 });
 
-export const ROLES = Object.freeze({
-    ADMIN: 'ADMIN',
-    EMPLEADO: 'EMPLEADO',
-    CLIENTE: 'CLIENTE'
-});
-
-export const ADMIN_WHITELIST = Object.freeze([
-    'admin',
-    'administrador'
-]);
-
-export const EMPLOYEE_WHITELIST = Object.freeze([
-    'empleado',
-    'operador',
-    'ventas'
-]);
-
-export const EMPLOYEE_PREFIX = 'emp_';
-
 export const AUTH_LOGIN = '/auth/login';
 export const AUTH_REGISTER = '/auth/register';
-export const APIKEYS_REGENERATE = '/apikeys/regenerate';
+export const AUTH_ME = '/auth/me';
 export const PRODUCTS = '/Products';
 export const CUSTOMERS = '/customers';
 export const ORDERS = '/orders';
+export const ORDERS_MINE = '/orders/mine';
 
 export const ENDPOINTS = Object.freeze({
     AUTH_LOGIN,
     AUTH_REGISTER,
-    APIKEYS_REGENERATE,
+    AUTH_ME,
     PRODUCTS,
     CUSTOMERS,
-    ORDERS
+    ORDERS,
+    ORDERS_MINE
 });
 
 export const PUBLIC_ENDPOINTS = Object.freeze([
@@ -51,16 +33,6 @@ export const PUBLIC_ENDPOINTS = Object.freeze([
 ]);
 
 export function getBaseUrl() {
-    try {
-        const stored = typeof localStorage !== 'undefined'
-            ? localStorage.getItem(STORAGE_KEYS.API_URL)
-            : null;
-        if (stored && stored.trim() !== '') {
-            return stored.trim().replace(/\/+$/, '');
-        }
-    } catch {
-        // Ignore storage access errors in restricted environments
-    }
     return API_BASE_URL;
 }
 

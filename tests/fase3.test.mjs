@@ -331,8 +331,57 @@ function makeResponse({ status = 200, body = null, ok = status >= 200 && status 
     };
 }
 
+const ADMIN_PERMS = {
+    canViewProductsAdmin: true,
+    canCreateProducts: true,
+    canEditProductDetails: true,
+    canEditProductPricingStock: true,
+    canDeleteProducts: true,
+    canDiscontinueProducts: true,
+    canViewCustomers: true,
+    canViewAllOrders: true,
+    canUpdateOrderStatus: true,
+    canCancelOwnOrders: false,
+    canPurchaseCatalog: false
+};
+
+const EMPLOYEE_PERMS = {
+    canViewProductsAdmin: true,
+    canCreateProducts: false,
+    canEditProductDetails: false,
+    canEditProductPricingStock: true,
+    canDeleteProducts: false,
+    canDiscontinueProducts: false,
+    canViewCustomers: true,
+    canViewAllOrders: true,
+    canUpdateOrderStatus: false,
+    canCancelOwnOrders: false,
+    canPurchaseCatalog: false
+};
+
+const CLIENT_PERMS = {
+    canViewProductsAdmin: false,
+    canCreateProducts: false,
+    canEditProductDetails: false,
+    canEditProductPricingStock: false,
+    canDeleteProducts: false,
+    canDiscontinueProducts: false,
+    canViewCustomers: false,
+    canViewAllOrders: false,
+    canUpdateOrderStatus: false,
+    canCancelOwnOrders: true,
+    canPurchaseCatalog: true
+};
+
+function mockProfileFor(username) {
+    if (username === 'admin') return { defaultView: './productos.html', permissions: ADMIN_PERMS };
+    if (username.startsWith('emp_') || username === 'Robe' || username === 'Leo') return { defaultView: './productos.html', permissions: EMPLOYEE_PERMS };
+    return { defaultView: './catalogo.html', permissions: CLIENT_PERMS };
+}
+
 async function loginMockUser(username) {
     const futureExp = new Date(Date.now() + 3600 * 1000).toISOString();
+    const profile = mockProfileFor(username);
     const prevFetch = globalThis.fetch;
     globalThis.fetch = async () => makeResponse({
         status: 200,
@@ -340,7 +389,8 @@ async function loginMockUser(username) {
             userId: 1,
             username,
             apiKey: `ak_${username}_key`,
-            expiresAt: futureExp
+            expiresAt: futureExp,
+            ...profile
         }
     });
     const session = await authService.login(username, 'Password123!');
@@ -653,29 +703,34 @@ test('TASK-F3-02: ProductModel y validateProduct(dto) validando cotas exactas de
 });
 
 test('TASK-F3-03: Vista administrativa de productos (authGuard, permisos ADMIN vs EMPLEADO y restriccion de edicion)', async () => {
-    // 1. Bloqueo directo a CLIENTE con authGuard(['ADMIN', 'EMPLEADO'])
+    // 1. Bloqueo directo a cuenta sin permiso con authGuard('canViewProductsAdmin')
     resetEnvironment('/src/views/productos.html');
     await loginMockUser('cliente_juan');
-    const guardClient = authGuard(['ADMIN', 'EMPLEADO']);
+    const guardClient = authGuard('canViewProductsAdmin');
     assert.equal(guardClient, false);
     assert.equal(globalThis.window.location.href, './catalogo.html?error=403');
 
-    // 2. Permisos para ADMIN: botones de creación, edición, descontinuación y eliminación visibles
+    // 2. Permisos completos: botones de creación, edición, descontinuación y eliminación visibles
     resetEnvironment('/src/views/productos.html');
     const doc = globalThis.document;
     registerProductosDomElements(doc);
     await loginMockUser('admin');
 
-    globalThis.fetch = async () => makeResponse({
-        status: 200,
-        body: {
-            totalProducts: 2,
-            products: [
-                { productId: 10, productName: 'Ikura', unitPrice: 31.00, unitsInStock: 31 },
-                { productId: 11, productName: 'Queso Cabrales', unitPrice: 21.00, unitsInStock: 22 }
-            ]
+    globalThis.fetch = async (url) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 1, username: 'admin', ...mockProfileFor('admin') } });
         }
-    });
+        return makeResponse({
+            status: 200,
+            body: {
+                totalProducts: 2,
+                products: [
+                    { productId: 10, productName: 'Ikura', unitPrice: 31.00, unitsInStock: 31 },
+                    { productId: 11, productName: 'Queso Cabrales', unitPrice: 21.00, unitsInStock: 22 }
+                ]
+            }
+        });
+    };
 
     await productsCtrl.initProductsController(doc);
 
@@ -684,21 +739,20 @@ test('TASK-F3-03: Vista administrativa de productos (authGuard, permisos ADMIN v
 
     const adminActionsHtml = productsCtrl.renderAccionesProducto(
         { productId: 10, productName: 'Ikura', unitPrice: 31, unitsInStock: 31, discontinued: false },
-        'ADMIN'
+        ADMIN_PERMS
     );
     assert.ok(adminActionsHtml.includes('data-action="editar"'));
     assert.ok(adminActionsHtml.includes('data-action="descontinuar"'));
     assert.ok(adminActionsHtml.includes('data-action="eliminar"'));
 
-    // Al abrir modal de edición como ADMIN, todos los campos están habilitados
+    // Al abrir modal de edición con permisos completos, todos los campos están habilitados
     productsCtrl.editarProducto(10);
     assert.equal(doc.getElementById('prodName').disabled, false);
     assert.equal(doc.getElementById('prodPrice').disabled, false);
     assert.equal(doc.getElementById('prodStock').disabled, false);
     assert.equal(doc.getElementById('prodDiscontinued').disabled, false);
 
-    // 3. Permisos para EMPLEADO: ocultar botón de creación, descontinuación y eliminación;
-    // permitir únicamente edición de precio y existencias
+    // 3. Permisos operativos (solo precio y existencias)
     resetEnvironment('/src/views/productos.html');
     const empDoc = globalThis.document;
     registerProductosDomElements(empDoc);
@@ -706,6 +760,9 @@ test('TASK-F3-03: Vista administrativa de productos (authGuard, permisos ADMIN v
 
     const capturedPut = [];
     globalThis.fetch = async (url, options) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 2, username: 'emp_operador', ...mockProfileFor('emp_operador') } });
+        }
         if (options?.method === 'PUT') {
             capturedPut.push({ url, body: JSON.parse(options.body) });
             return makeResponse({ status: 204, body: null });
@@ -723,14 +780,14 @@ test('TASK-F3-03: Vista administrativa de productos (authGuard, permisos ADMIN v
 
     await productsCtrl.initProductsController(empDoc);
 
-    // Botón "+ Nuevo Producto" oculto para EMPLEADO
+    // Botón "+ Nuevo Producto" oculto
     assert.equal(empDoc.getElementById('btnNuevoProducto').hidden, true);
     assert.equal(empDoc.getElementById('btnNuevoProducto').classList.contains('d-none'), true);
 
-    // Acciones de fila para EMPLEADO solo incluyen Editar (sin Eliminar ni Descontinuar)
+    // Acciones de fila solo incluyen Editar (sin Eliminar ni Descontinuar)
     const empActionsHtml = productsCtrl.renderAccionesProducto(
         { productId: 10, productName: 'Ikura', unitPrice: 31, unitsInStock: 31, discontinued: false },
-        'EMPLEADO'
+        EMPLOYEE_PERMS
     );
     assert.ok(empActionsHtml.includes('data-action="editar"'));
     assert.equal(empActionsHtml.includes('data-action="eliminar"'), false);
@@ -786,6 +843,9 @@ test('TASK-F3-04: Formulario modal unificado (atributos HTML5, limpieza de valid
     ];
 
     globalThis.fetch = async (url, options) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 1, username: 'admin', ...mockProfileFor('admin') } });
+        }
         if (!options || options.method === 'GET') {
             return makeResponse({
                 status: 200,
@@ -865,6 +925,9 @@ test('TASK-F3-05: Politica de descontinuacion y manejo de error HTTP 409 Conflic
     ];
 
     globalThis.fetch = async (url, options = {}) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 1, username: 'admin', ...mockProfileFor('admin') } });
+        }
         requests.push({ url, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null });
 
         if (options.method === 'DELETE') {
@@ -929,15 +992,16 @@ test('TASK-F3-06: Vista de catalogo comercial (authGuard, tarjetas, filtros en t
     assert.equal(catalogoHtml.includes('data-action="editar"'), false);
     assert.equal(catalogoHtml.includes('data-action="descontinuar"'), false);
 
-    // 2. Acceso permitido a ADMIN, EMPLEADO y CLIENTE mediante authGuard(['ADMIN', 'EMPLEADO', 'CLIENTE'])
+    // 2. Acceso permitido a usuarios autenticados mediante authGuard()
     resetEnvironment('/src/views/catalogo.html');
     const doc = globalThis.document;
     registerCatalogoDomElements(doc);
     await loginMockUser('cliente_autoservicio');
 
-    const guardRes = authGuard(['ADMIN', 'EMPLEADO', 'CLIENTE']);
+    const guardRes = authGuard();
     assert.ok(guardRes);
-    assert.equal(guardRes.role, 'CLIENTE');
+    assert.equal(guardRes.role, undefined);
+    assert.equal(guardRes.permissions.canPurchaseCatalog, true);
 
     const mockCatalogProducts = [
         { ProductId: 1, ProductName: 'Chai', UnitPrice: 18.00, UnitsInStock: 39 },
@@ -945,10 +1009,15 @@ test('TASK-F3-06: Vista de catalogo comercial (authGuard, tarjetas, filtros en t
         { ProductId: 3, ProductName: 'Cote de Blaye', UnitPrice: 263.50, UnitsInStock: 17 }
     ];
 
-    globalThis.fetch = async () => makeResponse({
-        status: 200,
-        body: { totalProducts: 3, products: mockCatalogProducts }
-    });
+    globalThis.fetch = async (url) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 3, username: 'cliente_autoservicio', ...mockProfileFor('cliente_autoservicio') } });
+        }
+        return makeResponse({
+            status: 200,
+            body: { totalProducts: 3, products: mockCatalogProducts }
+        });
+    };
 
     await catalogCtrl.initCatalogController(doc);
 
@@ -1013,13 +1082,13 @@ test('Regresion Fase 3: renderizarTablaFallback preserva celdas, permisos CLIENT
     // 1. renderizarTablaFallback construye <td> hijos sin sobrescribirlos con tr.textContent
     productsCtrl.renderizarTablaFallback(
         [{ productId: 10, productName: 'Queso', unitPrice: 12.5, unitsInStock: 4, discontinued: false }],
-        'ADMIN'
+        ADMIN_PERMS
     );
     assert.equal(tbody.children.length, 1);
     assert.equal(tbody.children[0].children.length, 6);
 
-    // 2. aplicarPermisosRolProductos('CLIENTE') bloquea edicion y oculta boton nuevo
-    productsCtrl.aplicarPermisosRolProductos('CLIENTE');
+    // 2. aplicarPermisosProductos(CLIENT_PERMS) bloquea edicion y oculta boton nuevo
+    productsCtrl.aplicarPermisosProductos(CLIENT_PERMS);
     assert.equal(btnNuevo.hidden, true);
     assert.equal(prodPrice.disabled, true);
     assert.equal(prodStock.disabled, true);

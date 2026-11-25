@@ -20,11 +20,11 @@
                 <span class="badge bg-primary-subtle text-primary px-3 py-2 rounded-pill fs-6">Northwind Comercial</span>
                 <h3 class="fw-bold text-dark mt-2 mb-1">Portal de Acceso</h3>
                 <p class="text-muted small mb-0">
-                    Autenticación segura y control de acceso basado en roles (RBAC).
+                    Autenticación segura para el portal comercial Northwind.
                 </p>
             </div>
 
-            <!-- Pestañas de alternancia: Iniciar Sesión / Registrarse como Cliente -->
+            <!-- Pestañas de alternancia: Iniciar Sesión / Crear Cuenta -->
             <ul class="nav nav-pills nav-fill bg-body-tertiary p-1 rounded-3 mb-3" id="authTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active fw-semibold small" id="tabLogin" data-bs-toggle="pill"
@@ -37,7 +37,7 @@
                     <button class="nav-link fw-semibold small" id="tabRegister" data-bs-toggle="pill"
                             data-bs-target="#paneRegister" type="button" role="tab"
                             aria-controls="paneRegister" aria-selected="false">
-                        Registrarse como Cliente
+                        Crear Cuenta
                     </button>
                 </li>
             </ul>
@@ -74,25 +74,6 @@
                             </div>
                         </div>
 
-                        <!-- Configuración opcional de URL del Backend (no sensible, localStorage) -->
-                        <div class="mb-3">
-                            <button class="btn btn-link btn-sm text-decoration-none p-0 text-secondary" type="button"
-                                    id="btnToggleApiUrl" data-bs-toggle="collapse" data-bs-target="#collapseApiUrl"
-                                    aria-expanded="false" aria-controls="collapseApiUrl">
-                                Configurar URL del Backend (opcional)
-                            </button>
-                            <div class="collapse mt-2" id="collapseApiUrl">
-                                <div class="p-2 bg-body-tertiary rounded-3 border">
-                                    <label for="txtApiUrl" class="form-label small fw-semibold mb-1">URL Base del Backend (API)</label>
-                                    <input type="url" id="txtApiUrl" name="apiUrl" class="form-control form-control-sm"
-                                           placeholder="https://localhost:7039/api" autocomplete="off">
-                                    <div class="form-text small" id="helpApiUrl">
-                                        Parámetro no sensible guardado en <code>localStorage (northwind_api_url)</code>.
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- Aviso y cronómetro de bloqueo por fuerza bruta (REQ-SEC-006) -->
                         <div id="lockoutBanner" class="alert alert-warning d-none py-2 px-3 small mb-3" role="alert">
                             Demasiados intentos fallidos. Acceso bloqueado temporalmente. Intenta nuevamente en
@@ -123,12 +104,11 @@
                     </form>
                 </div>
 
-                <!-- PESTAÑA 2: REGISTRARSE COMO CLIENTE -->
+                <!-- PESTAÑA 2: CREAR CUENTA -->
                 <div class="tab-pane fade" id="paneRegister" role="tabpanel" aria-labelledby="tabRegister" tabindex="0">
                     <form id="formRegister" novalidate>
-                        <div class="alert alert-info border-0 bg-info-subtle text-info-emphasis py-2 px-3 small d-flex align-items-center justify-content-between mb-3" role="note">
-                            <span>Registro público de autoservicio</span>
-                            <span id="badgeRoleCliente" class="badge bg-primary rounded-pill">Rol: CLIENTE</span>
+                        <div class="alert alert-info border-0 bg-info-subtle text-info-emphasis py-2 px-3 small mb-3" role="note">
+                            Registro público de autoservicio
                         </div>
 
                         <div class="mb-3">
@@ -136,7 +116,7 @@
                                 Nombre de Usuario <span class="text-danger">*</span>
                             </label>
                             <input type="text" id="txtRegUsername" name="username" class="form-control"
-                                   placeholder="Ej. cliente_norte (3 a 50 caracteres)" required minlength="3" maxlength="50"
+                                   placeholder="Ej. usuario_norte (3 a 50 caracteres)" required minlength="3" maxlength="50"
                                    autocomplete="username">
                             <div id="errRegUsername" class="invalid-feedback">
                                 El nombre de usuario es obligatorio (3 a 50 caracteres, sin espacios).
@@ -167,7 +147,7 @@
                         </div>
 
                         <button type="submit" id="btnRegister" class="btn btn-success py-2 px-3 fw-semibold shadow-sm w-100">
-                            Registrarse como Cliente
+                            Crear Cuenta
                         </button>
                     </form>
                 </div>

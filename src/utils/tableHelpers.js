@@ -67,7 +67,7 @@ export function formatDate(value, fallback = 'N/A') {
     }
 }
 
-const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+)/i;
+const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|https?:\/\/localhost(?::\d+)?)/i;
 const GENERIC_HTTP_REASONS = new Set([
     'bad request',
     'unauthorized',
@@ -133,50 +133,15 @@ export function baseTableOptions(extra = {}) {
     };
 }
 
-// Trunca de forma segura una API Key activa (ej. ak_8f4a...9c12) sin exponer el secreto completo
-export function truncateApiKey(apiKey) {
-    if (!apiKey || typeof apiKey !== 'string') return 'No disponible';
-    const clean = apiKey.trim();
-    if (!clean) return 'No disponible';
-    if (clean.length <= 11) {
-        return `${clean.slice(0, 3)}...${clean.slice(-2)}`;
+// Obtiene las banderas de permisos de UI del usuario conectado (provenientes del backend)
+export function resolveConnectedPermissions(usuario, authService) {
+    if (usuario?.permissions && typeof usuario.permissions === 'object') {
+        return usuario.permissions;
     }
-    return `${clean.slice(0, 7)}...${clean.slice(-4)}`;
-}
-
-// Formatea de manera legible la fecha de expiración de la API Key
-export function formatExpirationDate(expiresAt) {
-    if (!expiresAt) return 'Sin expiración definida';
-    const parsed = Date.parse(expiresAt);
-    if (Number.isNaN(parsed)) return String(expiresAt);
-    try {
-        return new Date(parsed).toLocaleString('es-MX', {
-            year: 'numeric',
-            month: 'short',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    } catch {
-        return new Date(parsed).toISOString();
+    if (typeof authService?.getPermissions === 'function') {
+        return authService.getPermissions();
     }
-}
-
-// Devuelve la clase visual de Bootstrap para el badge de cada rol
-export function getRoleBadgeClass(role) {
-    const normalized = String(role || '').toUpperCase();
-    if (normalized === 'ADMIN') return 'bg-danger text-white';
-    if (normalized === 'EMPLEADO') return 'bg-warning text-dark';
-    return 'bg-info text-dark';
-}
-
-// Normaliza el rol del usuario conectado a ADMIN | EMPLEADO | CLIENTE
-export function resolveConnectedRole(usuario, authService) {
-    const rawRole = usuario?.role || usuario?.rol || authService?.getUserRole?.() || 'CLIENTE';
-    const upper = String(rawRole).toUpperCase().trim();
-    if (upper === 'ADMIN' || upper.startsWith('ADMINISTRADOR')) return 'ADMIN';
-    if (upper === 'EMPLEADO') return 'EMPLEADO';
-    return 'CLIENTE';
+    return {};
 }
 
 export function clearTbody(tbody) {
@@ -338,290 +303,24 @@ export function renderFlashErrorBanner() {
     return alertEl;
 }
 
-function updateModalApiKeyInfo(usuario, authService) {
-    if (typeof document === 'undefined') return;
-    const current = authService?.getCurrentUser?.() || usuario || {};
-    const apiKey = current.apiKey || authService?.getApiKey?.() || '';
-    const expiresAt = current.expiresAt || '';
-    const role = resolveConnectedRole(current, authService);
-
-    const lblTruncada = document.getElementById('lblApiKeyTruncada');
-    if (lblTruncada) {
-        lblTruncada.textContent = truncateApiKey(apiKey);
-    }
-
-    const lblExpiracion = document.getElementById('lblApiKeyExpiracion');
-    if (lblExpiracion) {
-        lblExpiracion.textContent = formatExpirationDate(expiresAt);
-    }
-
-    const lblRolModal = document.getElementById('lblApiKeyRol');
-    if (lblRolModal) {
-        lblRolModal.textContent = role;
-    }
-}
-
-// Ejecuta la regeneración de API Key y actualiza el DOM y sessionStorage sin requerir re-login
-export async function handleRegenerateApiKey(authService, skipConfirm = false) {
-    if (!authService || typeof authService.regenerateApiKey !== 'function') {
-        throw new Error('El servicio de regeneración de API Key no está disponible.');
-    }
-
-    const role = resolveConnectedRole(authService.getCurrentUser?.(), authService);
-    if (role !== 'ADMIN' && role !== 'EMPLEADO') {
-        throw new Error('Acceso denegado: Solo ADMIN y EMPLEADO pueden regenerar su API Key.');
-    }
-
-    if (!skipConfirm) {
-        const confirmFn = (typeof window !== 'undefined' && typeof window.confirm === 'function')
-            ? window.confirm.bind(window)
-            : (typeof confirm === 'function' ? confirm : null);
-        if (confirmFn) {
-            const ok = confirmFn('¿Estás seguro de regenerar tu API Key? La llave actual quedará invalidada de inmediato.');
-            if (ok === false) return null;
-        }
-    }
-
-    const btnRegenerar = typeof document !== 'undefined' ? document.getElementById('btnRegenerarApiKey') : null;
-    const alertResultado = typeof document !== 'undefined' ? document.getElementById('alertApiKeyResultado') : null;
-
-    if (btnRegenerar) {
-        btnRegenerar.disabled = true;
-        btnRegenerar.textContent = 'Regenerando...';
-    }
-
-    try {
-        const result = await authService.regenerateApiKey();
-        const updatedUser = authService.getCurrentUser?.() || result || {};
-        const newApiKey = result?.apiKey || result?.ApiKey || updatedUser.apiKey || authService.getApiKey?.() || '';
-        const newExpiresAt = result?.expiresAt || result?.ExpiresAt || updatedUser.expiresAt || '';
-
-        const lblTruncada = typeof document !== 'undefined' ? document.getElementById('lblApiKeyTruncada') : null;
-        if (lblTruncada) {
-            lblTruncada.textContent = truncateApiKey(newApiKey);
-        }
-
-        const lblExpiracion = typeof document !== 'undefined' ? document.getElementById('lblApiKeyExpiracion') : null;
-        if (lblExpiracion) {
-            lblExpiracion.textContent = formatExpirationDate(newExpiresAt);
-        }
-
-        if (alertResultado) {
-            alertResultado.className = 'alert alert-success py-2 px-3 small mb-0 mt-3';
-            alertResultado.textContent = 'API Key regenerada exitosamente. Tu sesión activa fue actualizada sin necesidad de volver a iniciar sesión.';
-            setElementVisibility(alertResultado, true);
-        }
-
-        return result;
-    } catch (err) {
-        if (alertResultado) {
-            alertResultado.className = 'alert alert-danger py-2 px-3 small mb-0 mt-3';
-            alertResultado.textContent = err?.message || 'No se pudo regenerar la API Key.';
-            setElementVisibility(alertResultado, true);
-        }
-        throw err;
-    } finally {
-        if (btnRegenerar) {
-            btnRegenerar.disabled = false;
-            btnRegenerar.textContent = 'Regenerar API Key';
-        }
-    }
-}
-
-// Oculta el modal de API Key en modo fallback (sin Bootstrap JS) y limpia su alerta
-export function hideApiKeyModalFallback(modalEl) {
-    if (!modalEl) return;
-    hideModal(modalEl);
-    const alertResultado = typeof document !== 'undefined' ? document.getElementById('alertApiKeyResultado') : null;
-    if (alertResultado) {
-        setElementVisibility(alertResultado, false);
-    }
-}
-
-// Inyecta o actualiza el modal de gestión de API Key para roles administrativos (ADMIN / EMPLEADO)
-export function ensureApiKeyModal(usuario, authService) {
-    if (typeof document === 'undefined' || !document.body) return null;
-
-    let modalEl = document.getElementById('modalApiKey');
-    if (!modalEl) {
-        modalEl = document.createElement('div');
-        modalEl.className = 'modal fade';
-        modalEl.id = 'modalApiKey';
-        modalEl.tabIndex = -1;
-        modalEl.setAttribute('aria-labelledby', 'modalApiKeyTitulo');
-        modalEl.setAttribute('aria-hidden', 'true');
-
-        const dialogEl = document.createElement('div');
-        dialogEl.className = 'modal-dialog modal-dialog-centered';
-
-        const contentEl = document.createElement('div');
-        contentEl.className = 'modal-content border-0 shadow';
-
-        // Header
-        const headerEl = document.createElement('div');
-        headerEl.className = 'modal-header bg-dark text-white';
-
-        const titleEl = document.createElement('h5');
-        titleEl.className = 'modal-title fw-bold';
-        titleEl.id = 'modalApiKeyTitulo';
-        titleEl.textContent = 'Credencial API Key Activa';
-
-        const btnCloseHeader = document.createElement('button');
-        btnCloseHeader.type = 'button';
-        btnCloseHeader.className = 'btn-close btn-close-white';
-        btnCloseHeader.setAttribute('data-bs-dismiss', 'modal');
-        btnCloseHeader.setAttribute('aria-label', 'Cerrar');
-
-        headerEl.appendChild(titleEl);
-        headerEl.appendChild(btnCloseHeader);
-
-        // Body
-        const bodyEl = document.createElement('div');
-        bodyEl.className = 'modal-body';
-
-        const rolGroup = document.createElement('div');
-        rolGroup.className = 'mb-3';
-        const rolLabel = document.createElement('span');
-        rolLabel.className = 'text-muted small d-block';
-        rolLabel.textContent = 'Rol Autorizado';
-        const lblRol = document.createElement('span');
-        lblRol.id = 'lblApiKeyRol';
-        lblRol.className = 'badge bg-secondary';
-        rolGroup.appendChild(rolLabel);
-        rolGroup.appendChild(lblRol);
-
-        const keyGroup = document.createElement('div');
-        keyGroup.className = 'mb-3';
-        const keyLabel = document.createElement('span');
-        keyLabel.className = 'text-muted small d-block';
-        keyLabel.textContent = 'API Key Activa (Truncada por seguridad)';
-        const lblTruncada = document.createElement('code');
-        lblTruncada.id = 'lblApiKeyTruncada';
-        lblTruncada.className = 'fs-6 fw-bold text-dark bg-light border rounded px-2 py-1 d-inline-block mt-1';
-        keyGroup.appendChild(keyLabel);
-        keyGroup.appendChild(lblTruncada);
-
-        const expGroup = document.createElement('div');
-        expGroup.className = 'mb-3';
-        const expLabel = document.createElement('span');
-        expLabel.className = 'text-muted small d-block';
-        expLabel.textContent = 'Fecha de Expiración';
-        const lblExpiracion = document.createElement('strong');
-        lblExpiracion.id = 'lblApiKeyExpiracion';
-        lblExpiracion.className = 'text-secondary small';
-        expGroup.appendChild(expLabel);
-        expGroup.appendChild(lblExpiracion);
-
-        const alertWarning = document.createElement('div');
-        alertWarning.id = 'alertApiKeyWarning';
-        alertWarning.className = 'alert alert-warning py-2 px-3 small mb-0';
-        const strongWarn = document.createElement('strong');
-        strongWarn.textContent = 'Advertencia:';
-        alertWarning.appendChild(strongWarn);
-        alertWarning.appendChild(document.createTextNode(' Al regenerar tu API Key mediante '));
-        const codeEndpoint = document.createElement('code');
-        codeEndpoint.textContent = 'POST /api/apikeys/regenerate';
-        alertWarning.appendChild(codeEndpoint);
-        alertWarning.appendChild(
-            document.createTextNode(', la llave anterior quedará invalidada de inmediato en el servidor y se actualizará automáticamente en tu sesión activa.')
-        );
-
-        const alertResultado = document.createElement('div');
-        alertResultado.id = 'alertApiKeyResultado';
-        alertResultado.className = 'alert d-none py-2 px-3 small mb-0 mt-3';
-        alertResultado.setAttribute('role', 'status');
-
-        bodyEl.appendChild(rolGroup);
-        bodyEl.appendChild(keyGroup);
-        bodyEl.appendChild(expGroup);
-        bodyEl.appendChild(alertWarning);
-        bodyEl.appendChild(alertResultado);
-
-        // Footer
-        const footerEl = document.createElement('div');
-        footerEl.className = 'modal-footer';
-
-        const btnCerrar = document.createElement('button');
-        btnCerrar.type = 'button';
-        btnCerrar.className = 'btn btn-secondary btn-sm';
-        btnCerrar.setAttribute('data-bs-dismiss', 'modal');
-        btnCerrar.textContent = 'Cerrar';
-
-        const btnRegenerarFooter = document.createElement('button');
-        btnRegenerarFooter.type = 'button';
-        btnRegenerarFooter.id = 'btnRegenerarApiKey';
-        btnRegenerarFooter.className = 'btn btn-warning btn-sm fw-semibold';
-        btnRegenerarFooter.textContent = 'Regenerar API Key';
-
-        footerEl.appendChild(btnCerrar);
-        footerEl.appendChild(btnRegenerarFooter);
-
-        contentEl.appendChild(headerEl);
-        contentEl.appendChild(bodyEl);
-        contentEl.appendChild(footerEl);
-        dialogEl.appendChild(contentEl);
-        modalEl.appendChild(dialogEl);
-
-        document.body.appendChild(modalEl);
-    }
-
-    if (!modalEl.dataset) modalEl.dataset = {};
-    if (!modalEl.dataset.bsModalBound) {
-        modalEl.dataset.bsModalBound = 'true';
-        bindModalDismiss(modalEl, () => {
-            const alertResultado = document.getElementById('alertApiKeyResultado');
-            if (alertResultado) {
-                setElementVisibility(alertResultado, false);
-            }
-        });
-    }
-
-    updateModalApiKeyInfo(usuario, authService);
-
-    const btnRegenerar = document.getElementById('btnRegenerarApiKey');
-    if (btnRegenerar && authService) {
-        btnRegenerar.onclick = async () => {
-            try {
-                await handleRegenerateApiKey(authService);
-            } catch {
-                // El error ya se presenta en #alertApiKeyResultado
-            }
-        };
-    }
-
-    return modalEl;
-}
-
-// Inicializa el navbar dinámicamente según el rol conectado (TASK-F2-06 y TASK-F2-07)
+// Inicializa el navbar dinámicamente según las capacidades de UI devueltas por el backend (sin exponer roles)
 export function initNavbar(usuario, authService) {
     if (typeof document === 'undefined') return;
 
     const currentUser = authService?.getCurrentUser?.() || usuario || null;
     const username = currentUser?.username || currentUser?.nombre || usuario?.username || usuario?.nombre || 'Usuario';
-    const role = resolveConnectedRole(currentUser || usuario, authService);
-    const isAdminOrEmpleado = role === 'ADMIN' || role === 'EMPLEADO';
+    const perms = resolveConnectedPermissions(currentUser || usuario, authService);
+    const canViewProductsAdmin = Boolean(perms.canViewProductsAdmin);
+    const canViewCustomers = Boolean(perms.canViewCustomers);
+    const defaultView = currentUser?.defaultView || authService?.getDefaultView?.() || './catalogo.html';
 
-    // 1. Mostrar nombre de usuario con textContent
+    // 1. Mostrar nombre de usuario con textContent (sin badge de rol)
     const lblUsuario = document.getElementById('lblUsuario');
     if (lblUsuario) {
         lblUsuario.textContent = username;
     }
 
-    // 2. Mostrar badge del rol conectado (#badgeRol)
-    let badgeRol = document.getElementById('badgeRol');
-    if (!badgeRol && lblUsuario && lblUsuario.parentElement) {
-        badgeRol = document.createElement('span');
-        badgeRol.id = 'badgeRol';
-        lblUsuario.parentElement.appendChild(document.createTextNode(' '));
-        lblUsuario.parentElement.appendChild(badgeRol);
-    }
-    if (badgeRol) {
-        badgeRol.textContent = role;
-        badgeRol.className = `badge rounded-pill ms-1 ${getRoleBadgeClass(role)}`;
-        badgeRol.setAttribute('data-role', role);
-    }
-
-    // 3. Adaptar visibilidad de enlaces del menú de navegación según el rol
+    // 2. Adaptar visibilidad de enlaces del menú de navegación según capacidades de UI
     const navLinks = typeof document.querySelectorAll === 'function'
         ? Array.from(document.querySelectorAll('a[href]'))
         : [];
@@ -631,17 +330,22 @@ export function initNavbar(usuario, authService) {
         const isBrand = link.classList && link.classList.contains('navbar-brand');
 
         if (isBrand) {
-            link.setAttribute('href', isAdminOrEmpleado ? './productos.html' : './catalogo.html');
+            link.setAttribute('href', defaultView);
             continue;
         }
 
-        const isRestrictedAdminLink = href.includes('productos.html') || href.includes('clientes.html');
+        const isProductsLink = href.includes('productos.html');
+        const isCustomersLink = href.includes('clientes.html');
         const isSharedLink = href.includes('catalogo.html') || href.includes('pedidos.html') || href.includes('ordenes.html');
 
-        if (isRestrictedAdminLink) {
-            setElementVisibility(link, isAdminOrEmpleado);
+        if (isProductsLink) {
+            setElementVisibility(link, canViewProductsAdmin);
             const parentLi = link.closest ? link.closest('.nav-item, li') : null;
-            if (parentLi) setElementVisibility(parentLi, isAdminOrEmpleado);
+            if (parentLi) setElementVisibility(parentLi, canViewProductsAdmin);
+        } else if (isCustomersLink) {
+            setElementVisibility(link, canViewCustomers);
+            const parentLi = link.closest ? link.closest('.nav-item, li') : null;
+            if (parentLi) setElementVisibility(parentLi, canViewCustomers);
         } else if (isSharedLink) {
             setElementVisibility(link, true);
             const parentLi = link.closest ? link.closest('.nav-item, li') : null;
@@ -650,58 +354,21 @@ export function initNavbar(usuario, authService) {
     }
 
     // Soporte adicional por IDs de elementos de navegación si existen en la vista
-    const adminNavIds = ['navProductos', 'navItemProductos', 'navClientes', 'navItemClientes'];
-    for (const id of adminNavIds) {
+    for (const id of ['navProductos', 'navItemProductos']) {
         const el = document.getElementById(id);
-        if (el) setElementVisibility(el, isAdminOrEmpleado);
+        if (el) setElementVisibility(el, canViewProductsAdmin);
     }
-    const clientAllowedNavIds = ['navCatalogo', 'navItemCatalogo', 'navPedidos', 'navItemPedidos', 'navOrdenes', 'navItemOrdenes'];
-    for (const id of clientAllowedNavIds) {
+    for (const id of ['navClientes', 'navItemClientes']) {
+        const el = document.getElementById(id);
+        if (el) setElementVisibility(el, canViewCustomers);
+    }
+    for (const id of ['navCatalogo', 'navItemCatalogo', 'navPedidos', 'navItemPedidos', 'navOrdenes', 'navItemOrdenes']) {
         const el = document.getElementById(id);
         if (el) setElementVisibility(el, true);
     }
 
-    // 4. Botón y modal de regeneración de API Key (solo para ADMIN y EMPLEADO; oculto para CLIENTE)
+    // 3. Botón de cerrar sesión con confirmación rápida
     const btnLogout = document.getElementById('btnLogout');
-    let btnPerfilApiKey = document.getElementById('btnPerfilApiKey');
-    if (!btnPerfilApiKey && btnLogout && btnLogout.parentElement) {
-        btnPerfilApiKey = document.createElement('button');
-        btnPerfilApiKey.type = 'button';
-        btnPerfilApiKey.id = 'btnPerfilApiKey';
-        btnPerfilApiKey.className = 'btn btn-outline-warning btn-sm';
-        btnPerfilApiKey.textContent = 'Mi API Key';
-        btnLogout.parentElement.insertBefore(btnPerfilApiKey, btnLogout);
-    }
-
-    if (btnPerfilApiKey) {
-        setElementVisibility(btnPerfilApiKey, isAdminOrEmpleado);
-        if (isAdminOrEmpleado) {
-            ensureApiKeyModal(currentUser || usuario, authService);
-            btnPerfilApiKey.onclick = () => {
-                const modalEl = ensureApiKeyModal(currentUser || usuario, authService);
-                const alertResultado = document.getElementById('alertApiKeyResultado');
-                if (alertResultado) setElementVisibility(alertResultado, false);
-                if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-                    const instance = bootstrap.Modal.getOrCreateInstance
-                        ? bootstrap.Modal.getOrCreateInstance(modalEl)
-                        : new bootstrap.Modal(modalEl);
-                    instance.show();
-                } else if (modalEl) {
-                    modalEl.classList.add('show');
-                    if (modalEl.style) modalEl.style.display = 'block';
-                    modalEl.setAttribute?.('aria-hidden', 'false');
-                }
-            };
-        } else {
-            btnPerfilApiKey.onclick = null;
-            const modalEl = document.getElementById('modalApiKey');
-            if (modalEl) {
-                hideApiKeyModalFallback(modalEl);
-            }
-        }
-    }
-
-    // 5. Botón de cerrar sesión con confirmación rápida
     if (btnLogout && authService) {
         btnLogout.onclick = (e) => {
             if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -716,6 +383,6 @@ export function initNavbar(usuario, authService) {
         };
     }
 
-    // 6. Mostrar alerta 403 si hubo redirección por permisos insuficientes
+    // 4. Mostrar alerta 403 si hubo redirección por permisos insuficientes
     renderFlashErrorBanner();
 }

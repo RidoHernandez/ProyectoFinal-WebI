@@ -57,12 +57,13 @@ function makeResponse({ status = 200, body = null, ok = status >= 200 && status 
     };
 }
 
-test('TASK-F1-01: Configuracion centralizada y construccion de URLs', () => {
+test('TASK-F1-01: Configuracion centralizada y construccion de URLs fija', () => {
     resetEnvironment();
     assert.equal(config.API_BASE_URL, 'https://localhost:7039/api');
     assert.equal(config.AUTH_LOGIN, '/auth/login');
     assert.equal(config.AUTH_REGISTER, '/auth/register');
-    assert.equal(config.APIKEYS_REGENERATE, '/apikeys/regenerate');
+    assert.equal(config.AUTH_ME, '/auth/me');
+    assert.equal(config.APIKEYS_REGENERATE, undefined);
     assert.equal(config.PRODUCTS, '/Products');
     assert.equal(config.CUSTOMERS, '/customers');
     assert.equal(config.ORDERS, '/orders');
@@ -71,17 +72,11 @@ test('TASK-F1-01: Configuracion centralizada y construccion de URLs', () => {
     assert.equal(config.buildApiUrl(config.PRODUCTS), 'https://localhost:7039/api/Products');
     assert.equal(config.buildApiUrl('/api/Products'), 'https://localhost:7039/api/Products');
 
-    globalThis.localStorage.setItem('northwind_api_url', 'http://localhost:8080/api/');
-    assert.equal(config.getBaseUrl(), 'http://localhost:8080/api');
-    assert.equal(config.buildApiUrl('/api/orders'), 'http://localhost:8080/api/orders');
-    assert.equal(config.buildApiUrl('/orders'), 'http://localhost:8080/api/orders');
-
-    globalThis.localStorage.setItem('northwind_api_url', 'http://localhost:9000');
-    assert.equal(config.buildApiUrl('/Products'), 'http://localhost:9000/api/Products');
-    assert.equal(config.buildApiUrl('/api/Products'), 'http://localhost:9000/api/Products');
-
-    globalThis.localStorage.setItem('northwind_api_url', 'http://localhost:9000/API');
-    assert.equal(config.buildApiUrl('/api/Products'), 'http://localhost:9000/API/Products');
+    // URL fija: localStorage.northwind_api_url no puede sobrescribir el backend
+    globalThis.localStorage.setItem('northwind_api_url', 'http://malicioso.local/api/');
+    assert.equal(config.getBaseUrl(), 'https://localhost:7039/api');
+    assert.equal(config.buildApiUrl('/api/orders'), 'https://localhost:7039/api/orders');
+    assert.equal(config.buildApiUrl('/orders'), 'https://localhost:7039/api/orders');
 
     assert.equal(config.isPublicEndpoint('/auth/login'), true);
     assert.equal(config.isPublicEndpoint('auth/login'), true);
@@ -193,7 +188,7 @@ test('TASK-F1-03: Normalizacion de ProblemDetails (RFC 7807) y ocultamiento de s
         assert.equal(res.problemDetails.status, c.status);
         assert.equal(res.problemDetails.title, c.payload.title);
         assert.equal(res.problemDetails.detail, c.expectedDetail);
-        assert.equal(res.problemDetails.instance, c.payload.instance);
+        assert.equal(res.problemDetails.instance, null);
     }
 
     // 500 con stack trace debe ser sanitizado completamente
@@ -254,7 +249,7 @@ test('TASK-F1-04: Interceptor 401 limpia sessionStorage, redirige y evita loop e
     assert.equal(globalThis.window.location.href, 'http://localhost:3000/src/views/productos.html');
 });
 
-test('authService: login, checkSession y logout operan sobre sessionStorage', async () => {
+test('authService: login, checkSession y logout operan sobre sessionStorage sin exponer roles', async () => {
     resetEnvironment('/src/views/login.html');
     const futureExp = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     globalThis.fetch = async () => makeResponse({
@@ -263,20 +258,25 @@ test('authService: login, checkSession y logout operan sobre sessionStorage', as
             userId: 1,
             username: 'admin',
             apiKey: 'ak_admin_session_001',
-            expiresAt: futureExp
+            expiresAt: futureExp,
+            defaultView: './productos.html',
+            permissions: { canViewProductsAdmin: true, canCreateProducts: true }
         }
     });
 
-    const loggedSession = await authService.login('admin', 'AdminSecret123!', 'http://localhost:5009');
+    const loggedSession = await authService.login('admin', 'AdminSecret123!');
     assert.equal(loggedSession.username, 'admin');
-    assert.equal(loggedSession.role, 'ADMIN');
+    assert.equal(loggedSession.role, undefined);
+    assert.equal(loggedSession.permissions.canViewProductsAdmin, true);
     assert.equal(authService.getApiKey(), 'ak_admin_session_001');
     assert.equal(globalThis.localStorage.getItem('northwind_api_key'), null);
+    assert.equal(globalThis.localStorage.getItem('northwind_api_url'), null);
 
     const session = await authService.checkSession();
     assert.equal(session.autenticado, true);
     assert.equal(session.apiKey, 'ak_admin_session_001');
-    assert.equal(session.role, 'ADMIN');
+    assert.equal(session.role, undefined);
+    assert.equal(session.defaultView, './productos.html');
 
     authService.logout();
     assert.equal(authService.getApiKey(), null);

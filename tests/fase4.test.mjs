@@ -342,8 +342,64 @@ function makeResponse({ status = 200, body = null, ok = status >= 200 && status 
     };
 }
 
+function mockProfileFor(username) {
+    if (username === 'admin') {
+        return {
+            defaultView: './productos.html',
+            permissions: {
+                canViewProductsAdmin: true,
+                canCreateProducts: true,
+                canEditProductDetails: true,
+                canEditProductPricingStock: true,
+                canDeleteProducts: true,
+                canDiscontinueProducts: true,
+                canViewCustomers: true,
+                canViewAllOrders: true,
+                canUpdateOrderStatus: true,
+                canCancelOwnOrders: false,
+                canPurchaseCatalog: false
+            }
+        };
+    }
+    if (username.startsWith('emp_') || username === 'Robe' || username === 'Leo') {
+        return {
+            defaultView: './productos.html',
+            permissions: {
+                canViewProductsAdmin: true,
+                canCreateProducts: false,
+                canEditProductDetails: false,
+                canEditProductPricingStock: true,
+                canDeleteProducts: false,
+                canDiscontinueProducts: false,
+                canViewCustomers: true,
+                canViewAllOrders: true,
+                canUpdateOrderStatus: false,
+                canCancelOwnOrders: false,
+                canPurchaseCatalog: false
+            }
+        };
+    }
+    return {
+        defaultView: './catalogo.html',
+        permissions: {
+            canViewProductsAdmin: false,
+            canCreateProducts: false,
+            canEditProductDetails: false,
+            canEditProductPricingStock: false,
+            canDeleteProducts: false,
+            canDiscontinueProducts: false,
+            canViewCustomers: false,
+            canViewAllOrders: false,
+            canUpdateOrderStatus: false,
+            canCancelOwnOrders: true,
+            canPurchaseCatalog: true
+        }
+    };
+}
+
 async function loginMockUser(username) {
     const futureExp = new Date(Date.now() + 3600 * 1000).toISOString();
+    const profile = mockProfileFor(username);
     const prevFetch = globalThis.fetch;
     globalThis.fetch = async () => makeResponse({
         status: 200,
@@ -351,7 +407,8 @@ async function loginMockUser(username) {
             userId: 10,
             username,
             apiKey: `ak_${username}_f4`,
-            expiresAt: futureExp
+            expiresAt: futureExp,
+            ...profile
         }
     });
     const session = await authService.login(username, 'Password123!');
@@ -391,13 +448,14 @@ function registerOrdenesDom(doc) {
         'modalDetalleOrden', 'modalDetalleOrdenTitulo', 'detOrdenEstatus', 'alertDetalleOrden',
         'detOrdenId', 'detOrdenFecha', 'detOrdenRequerida', 'detOrdenEnvio',
         'detOrdenFlete', 'detOrdenDestinatario', 'detOrdenDireccion',
-        'detOrdenCiudad', 'detOrdenRegion', 'detOrdenCodigoPostal',
-        'detOrdenPais', 'detOrdenDireccionCompleta'
+        'detOrdenCiudad',
+        'detOrdenPais', 'detOrdenDireccionCompleta',
+        'detOrdenProductosWrapper', 'tbodyDetalleOrdenProductos', 'detOrdenTotal'
     ];
     for (const id of ids) {
         const tag = id.startsWith('btn')
             ? 'button'
-            : (id.startsWith('form') ? 'form' : (id.startsWith('txt') ? 'input' : (id.startsWith('sel') ? 'select' : (id === 'tbodyPedidos' ? 'tbody' : 'div'))));
+            : (id.startsWith('form') ? 'form' : (id.startsWith('txt') ? 'input' : (id.startsWith('sel') ? 'select' : (id.startsWith('tbody') ? 'tbody' : 'div'))));
         doc.registerElement(new MockElement(tag, id));
     }
     doc.getElementById('selEstadoOrden').value = 'ALL';
@@ -407,6 +465,8 @@ function registerOrdenesDom(doc) {
     doc.getElementById('infoFiltroCliente').hidden = true;
     doc.getElementById('alertDetalleOrden').classList.add('d-none');
     doc.getElementById('alertDetalleOrden').hidden = true;
+    doc.getElementById('detOrdenProductosWrapper').classList.add('d-none');
+    doc.getElementById('detOrdenProductosWrapper').hidden = true;
 }
 
 test('TASK-F4-01: CustomerModel (minimización 3 campos, validación anti-traversal) y customerService (solo lectura)', async () => {
@@ -492,10 +552,10 @@ test('TASK-F4-02: clientes.html y customersController.js (RBAC 403, anti-XSS, b�
     assert.equal(clientesHtml.includes('data-action="editar"'), false);
     assert.equal(clientesHtml.includes('btnNuevo'), false);
 
-    // 2. Bloqueo 403 a CLIENTE mediante authGuard(['ADMIN', 'EMPLEADO'])
+    // 2. Bloqueo 403 a cuenta sin permiso mediante authGuard('canViewCustomers')
     resetEnvironment('/src/views/clientes.html');
     await loginMockUser('cliente_demo');
-    const guardBlocked = authGuard(['ADMIN', 'EMPLEADO']);
+    const guardBlocked = authGuard('canViewCustomers');
     assert.equal(guardBlocked, false);
     assert.equal(globalThis.window.location.href, './catalogo.html?error=403');
     assert.ok(globalThis.sessionStorage.getItem('auth_flash_error')?.includes('403'));
@@ -524,6 +584,9 @@ test('TASK-F4-02: clientes.html y customersController.js (RBAC 403, anti-XSS, b�
     ];
 
     globalThis.fetch = async (url) => {
+        if (url.endsWith('/auth/me')) {
+            return makeResponse({ status: 200, body: { userId: 10, username: 'emp_ventas', ...mockProfileFor('emp_ventas') } });
+        }
         if (url.endsWith('/customers/ALFKI')) {
             return makeResponse({ status: 200, body: mockCustomers[0] });
         }
@@ -615,7 +678,7 @@ test('TASK-F4-03: OrderModel (11 campos, estatus logístico, dirección postal, 
         assert.equal(validateOrderId(badOrderId).valid, false, `Debe rechazar orderId inválido: ${String(badOrderId)}`);
     }
 
-    // Proyección estricta a 11 propiedades (REQ-SEC-003)
+    // Proyección estricta a 12 propiedades (REQ-SEC-003 / Fase 7: status persistente)
     const dto = OrderModel.fromApiDto({
         OrderId: 10248,
         OrderDate: '2026-10-01T00:00:00Z',
@@ -633,10 +696,11 @@ test('TASK-F4-03: OrderModel (11 campos, estatus logístico, dirección postal, 
     });
     assert.deepEqual(Object.keys(dto), [
         'orderId', 'orderDate', 'requiredDate', 'shippedDate', 'freight',
-        'shipName', 'shipAddress', 'shipCity', 'shipRegion', 'shipPostalCode', 'shipCountry'
+        'shipName', 'shipAddress', 'shipCity', 'shipCountry',
+        'status', 'total', 'items'
     ]);
     assert.equal(dto.freight, 32.38);
-    assert.equal(dto.shipRegion, '');
+    assert.equal(dto.shipCity, 'Reims');
 
     // Resolución determinista de los 3 estados logísticos
     const refDate = new Date('2026-11-10T12:00:00Z');
@@ -668,15 +732,31 @@ test('TASK-F4-03: OrderModel (11 campos, estatus logístico, dirección postal, 
 
     assert.equal(
         OrderModel.formatPostalAddress(dto),
-        '59 rue de l Abbaye, Reims, 51100, France'
+        '59 rue de l Abbaye, Reims, France'
     );
     assert.equal(OrderModel.formatPostalAddress({}), 'Sin dirección postal registrada');
 
-    // Contrato estricto de solo lectura en orderService
+    // Contrato inmutable de orderService con soporte de pedidos propios, creación y cambio de estado (TASK-F6-02 / TASK-F7-03)
     assert.equal(Object.isFrozen(orderService), true);
-    assert.deepEqual(Object.keys(orderService).sort(), ['getAll', 'getById']);
+    assert.deepEqual(Object.keys(orderService).sort(), ['create', 'getAll', 'getById', 'getMine', 'updateStatus']);
 
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async (url, options) => {
+        if (options?.method === 'POST' && url.endsWith('/orders')) {
+            const payload = JSON.parse(options.body);
+            return makeResponse({
+                status: 201,
+                body: {
+                    ...dto,
+                    orderId: 11078,
+                    shipName: payload.shipName,
+                    total: 36.00,
+                    items: [{ productId: payload.items[0].productId, productName: 'Chai', unitPrice: 18, quantity: payload.items[0].quantity, subtotal: 36 }]
+                }
+            });
+        }
+        if (url.endsWith('/orders/mine')) {
+            return makeResponse({ status: 200, body: [{ ...dto, orderId: 11078 }] });
+        }
         if (url.endsWith('/orders/99999')) {
             return makeResponse({
                 status: 404,
@@ -692,6 +772,21 @@ test('TASK-F4-03: OrderModel (11 campos, estatus logístico, dirección postal, 
     const list = await orderService.getAll();
     assert.equal(list.length, 1);
     assert.equal(list[0].orderId, 10248);
+
+    const mine = await orderService.getMine();
+    assert.equal(mine.length, 1);
+    assert.equal(mine[0].orderId, 11078);
+
+    const created = await orderService.create({
+        items: [{ productId: 1, quantity: 2 }],
+        shipName: 'Ana López',
+        shipAddress: 'Av. Reforma 123',
+        shipCity: 'CDMX',
+        shipCountry: 'México'
+    });
+    assert.equal(created.orderId, 11078);
+    assert.equal(created.items.length, 1);
+    assert.equal(created.total, 36);
 
     const byId = await orderService.getById(10248);
     assert.equal(byId.shipCity, 'Reims');
@@ -776,6 +871,26 @@ test('TASK-F4-04: ordenes.html, pedidos.html y ordersController.js (RBAC, filtro
     await loginMockUser('admin');
 
     globalThis.fetch = async (url) => {
+        if (url.endsWith('/auth/me')) {
+            const current = authService.getCurrentUser();
+            const uname = current?.username || 'admin';
+            return makeResponse({ status: 200, body: { userId: 10, username: uname, ...mockProfileFor(uname) } });
+        }
+        if (url.endsWith('/orders/mine')) {
+            return makeResponse({
+                status: 200,
+                body: [
+                    {
+                        ...refOrders[0],
+                        shipName: 'Ana López',
+                        total: 54.0,
+                        items: [
+                            { productId: 1, productName: 'Chai', unitPrice: 18.0, quantity: 3, subtotal: 54.0 }
+                        ]
+                    }
+                ]
+            });
+        }
         const match = url.match(/\/orders\/(\d+)$/i);
         if (match) {
             const id = Number(match[1]);
@@ -818,7 +933,7 @@ test('TASK-F4-04: ordenes.html, pedidos.html y ordersController.js (RBAC, filtro
     assert.equal(adminDoc.getElementById('detOrdenFlete').textContent, '$32.38');
     assert.equal(adminDoc.getElementById('detOrdenDestinatario').textContent, 'cliente_ana <script>alert(1)</script>');
     assert.equal(adminDoc.getElementById('detOrdenDestinatario').innerHTML, '');
-    assert.equal(adminDoc.getElementById('detOrdenDireccionCompleta').textContent, 'Av. Reforma 100, CDMX, Centro, 06600, México');
+    assert.equal(adminDoc.getElementById('detOrdenDireccionCompleta').textContent, 'Av. Reforma 100, CDMX, México');
 
     // 3. Vista CLIENTE: aislamiento de órdenes ajenas + consulta puntual por ID
     resetEnvironment('/src/views/pedidos.html');
@@ -828,10 +943,16 @@ test('TASK-F4-04: ordenes.html, pedidos.html y ordersController.js (RBAC, filtro
 
     await ordersCtrl.initOrdersController(clientDoc);
 
-    // Muestra banner informativo de cliente y únicamente la orden asociada a cliente_ana (#10248)
+    // Muestra banner informativo de cliente y únicamente la orden propia retornada por /orders/mine (#10248)
     assert.equal(clientDoc.getElementById('infoFiltroCliente').hidden, false);
     assert.equal(clientDoc.getElementById('lblTotalOrdenes').textContent, '1');
     assert.equal(ordersCtrl.getVisibleOrdersCache()[0].orderId, 10248);
+
+    // Abrir detalle de la orden propia -> muestra tabla de productos comprados y total
+    await ordersCtrl.verDetalleOrden(10248, clientDoc, ordersCtrl.getVisibleOrdersCache()[0]);
+    assert.equal(clientDoc.getElementById('detOrdenProductosWrapper').hidden, false);
+    assert.equal(clientDoc.getElementById('tbodyDetalleOrdenProductos').children.length, 1);
+    assert.equal(clientDoc.getElementById('detOrdenTotal').textContent, '$54.00');
 
     // Intento directo de abrir orden ajena (#10250) sin buscarla -> 403
     const directDenied = await ordersCtrl.verDetalleOrden(10250, clientDoc);
