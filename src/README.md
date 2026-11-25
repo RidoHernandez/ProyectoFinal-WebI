@@ -1,50 +1,42 @@
-# Arquitectura Frontend Vanilla JS (Portal Comercial Northwind)
+# Arquitectura Frontend Vanilla JS — MVC (Portal Comercial Northwind)
 
-Arquitectura limpia modular basada en Vanilla JS (ES Modules, HTML5, Bootstrap 5, jQuery y DataTables).
+Arquitectura MVC pura en 3 carpetas basada en Vanilla JS (ES Modules nativos, HTML5, Bootstrap 5, jQuery y DataTables).
 
 ## Estructura del Proyecto
 
 ```
-├── SPECS/                       # Especificaciones funcionales y requisitos
+├── SPECS/                            # Especificaciones funcionales y requisitos
 └── src/
-    ├── api/                     # Clientes HTTP, configuración fija y transporte de datos
-    │   ├── config.js            # URL fija del servidor, claves JWT y endpoints centralizados
-    │   └── httpClient.js        # Cliente HTTP centralizado con Authorization Bearer JWT (fetch, promise, ajax, callbacks)
-    ├── controllers/             # Controladores de interfaz y orquestación de eventos
-    │   ├── loginController.js   # Manejador de la vista de Login y Registro
-    │   ├── productsController.js# Manejador de la vista de Productos
-    │   ├── catalogController.js # Manejador de la vista de Catálogo comercial
-    │   ├── customersController.js# Manejador de la vista de Clientes
-    │   └── ordersController.js  # Manejador de la vista de Pedidos y Órdenes
-    ├── services/                # Capa de servicios para comunicación con backend
-    │   ├── authService.js       # Servicio de autenticación, sesión firmada y capacidades de UI
-    │   ├── productService.js    # Servicio de productos
-    │   ├── customerService.js   # Servicio de clientes
-    │   └── orderService.js      # Servicio de pedidos
-    ├── models/                  # Clases y modelos de transferencia de datos (DTOs)
-    │   ├── productModel.js      # Modelo de Producto
-    │   ├── customerModel.js     # Modelo de Cliente
-    │   └── orderModel.js        # Modelo de Pedido
-    ├── utils/                   # Utilidades y funciones transversales
-    │   ├── authGuard.js         # Guardia de navegación por capacidades de UI
-    │   └── tableHelpers.js      # Helpers para DataTables, sanitización XSS y navbar
-    └── views/                   # Vistas HTML de la aplicación
-        ├── index.html
-        ├── login.html
-        ├── productos.html
-        ├── catalogo.html
-        ├── clientes.html
-        ├── pedidos.html
-        └── ordenes.html
+    ├── models/                       # Capa de datos, transporte HTTP, validaciones y sesión JWT
+    │   ├── apiClient.js              # URL fija del servidor, endpoints, transporte HTTP JWT Bearer y ProblemDetails
+    │   ├── authModel.js              # Autenticación JWT, sesión en sessionStorage, guardia de navegación y protección anti-fuerza bruta
+    │   ├── productModel.js           # Validación y CRUD/descontinuación de productos
+    │   ├── orderModel.js             # Estados, transiciones, validación y API de órdenes
+    │   └── customerModel.js          # Validación de ID y consulta de clientes
+    ├── views/                        # Vistas HTML5 con escudo anti-clickjacking
+    │   ├── index.html
+    │   ├── login.html
+    │   ├── catalogo.html
+    │   ├── productos.html
+    │   ├── clientes.html
+    │   └── pedidos.html
+    └── controllers/                  # Controladores de interfaz y helpers de UI/DOM
+        ├── uiHelpers.js              # Helpers de DataTables, sanitización XSS, modales, navbar y arranque autenticado
+        ├── loginController.js        # Controlador de Login y Registro
+        ├── catalogController.js      # Controlador de Catálogo comercial y compras
+        ├── productsController.js     # Controlador de gestión de Productos
+        ├── customersController.js    # Controlador de consulta de Clientes
+        └── ordersController.js       # Controlador de gestión y seguimiento de Pedidos
 ```
 
 ## Reglas de Arquitectura
 1. **ES Modules nativos:** Todos los scripts se importan usando `<script type="module">` y rutas relativas con extensión `.js`.
-2. **Separación de responsabilidades:**
-   - `views / html`: Estructura semántica sin lógica incrustada ni exposición de rutas de backend o roles.
-   - `controllers`: Captura eventos DOM, valida entradas de UI y orquesta llamadas a servicios.
-   - `services`: Encapsula llamadas al backend y maneja errores de red de forma sanitizada.
-   - `models`: Estandariza estructuras de datos y validaciones de carga útil (payloads).
-   - `api`: Abstracción única de transporte (`httpClient.js`) con URL fija.
-   - `utils`: Helpers compartidos, guardias por capacidades y sanitización contra XSS (`escapeHtml`).
-3. **Seguridad y Mínima Exposición (JWT Bearer):** La autenticación opera exclusivamente mediante tokens JWT (`Authorization: Bearer <token>`) almacenados únicamente en `sessionStorage`. La validación de roles reside exclusivamente en el backend (base de datos); el frontend no expone nombres de roles ni permite editar la URL del backend.
+2. **Dependencias unidireccionales:**
+   `models/apiClient.js` -> `models/*Model.js` -> `controllers/uiHelpers.js` -> `controllers/*Controller.js` -> `views/*.html`
+   - `models/` nunca importa desde `controllers/`.
+   - Los 5 controladores de página no exportan símbolos; se auto-inicializan al cargar la vista correspondiente.
+3. **Separación de responsabilidades:**
+   - `models`: Encapsula el cliente HTTP (`apiClient.js`), los modelos de dominio, validaciones de carga útil, sesión JWT y guardia de acceso.
+   - `views`: Estructura HTML semántica sin lógica de negocio, sin exposición de rutas de backend ni nombres de roles, y con protección anti-clickjacking contra embebido en `<iframe>`.
+   - `controllers`: Captura eventos DOM, sanitiza renderizado contra XSS (`escapeHtml`, `safeTextRender`) y coordina las vistas con los modelos.
+4. **Seguridad y Mínima Exposición (JWT Bearer):** La autenticación opera exclusivamente mediante tokens JWT (`Authorization: Bearer <token>`) almacenados únicamente en `sessionStorage`. La autorización de roles reside exclusivamente en el backend; el frontend adapta la UI según las capacidades (`permissions`) devueltas por el servidor.
