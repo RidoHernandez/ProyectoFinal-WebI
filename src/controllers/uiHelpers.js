@@ -1,4 +1,5 @@
 import { extractProblemMessage } from '../models/apiClient.js';
+import { cartModel } from '../models/cartModel.js';
 
 export { extractProblemMessage };
 
@@ -135,6 +136,17 @@ export function setElementVisibility(el, visible) {
     }
 }
 
+export function updateCartBadge(count = 0) {
+    if (typeof document === 'undefined') return;
+    const numeric = Math.max(0, Number(count) || 0);
+    for (const id of ['badgeCarritoNav', 'badgeCarritoCatalogo']) {
+        const badge = document.getElementById(id);
+        if (!badge) continue;
+        badge.textContent = String(numeric);
+        setElementVisibility(badge, numeric > 0);
+    }
+}
+
 // Abre un modal Bootstrap 5 con respaldo visual cuando Bootstrap JS no está cargado
 export function showModal(modalEl) {
     if (!modalEl) return null;
@@ -227,7 +239,7 @@ function renderFlashErrorBanner() {
 
     if (!flashMsg && !has403Param) return null;
 
-    const mensajeFinal = flashMsg || 'Acceso denegado (403): No tienes permisos para acceder a la sección solicitada.';
+    const mensajeFinal = flashMsg || 'No tienes permisos para acceder a la sección solicitada.';
 
     let alertEl = document.getElementById('alertAccesoDenegado');
     if (!alertEl) {
@@ -252,7 +264,7 @@ function renderFlashErrorBanner() {
     alertEl.textContent = '';
 
     const strongEl = document.createElement('strong');
-    strongEl.textContent = 'Acceso Restringido (403): ';
+    strongEl.textContent = 'Acceso Restringido: ';
     alertEl.appendChild(strongEl);
 
     const spanMsg = document.createElement('span');
@@ -281,6 +293,7 @@ function initNavbar(usuario, authModel) {
     const perms = resolveConnectedPermissions(currentUser || usuario, authModel);
     const canViewProductsAdmin = Boolean(perms.canViewProductsAdmin);
     const canViewCustomers = Boolean(perms.canViewCustomers);
+    const canPurchaseCatalog = Boolean(perms.canPurchaseCatalog);
     const defaultView = currentUser?.defaultView || authModel?.getDefaultView?.() || './catalogo.html';
 
     const lblUsuario = document.getElementById('lblUsuario');
@@ -303,6 +316,7 @@ function initNavbar(usuario, authModel) {
 
         const isProductsLink = href.includes('productos.html');
         const isCustomersLink = href.includes('clientes.html');
+        const isCartLink = href.includes('carrito.html');
         const isSharedLink = href.includes('catalogo.html') || href.includes('pedidos.html');
 
         if (isProductsLink) {
@@ -313,6 +327,10 @@ function initNavbar(usuario, authModel) {
             setElementVisibility(link, canViewCustomers);
             const parentLi = link.closest ? link.closest('.nav-item, li') : null;
             if (parentLi) setElementVisibility(parentLi, canViewCustomers);
+        } else if (isCartLink) {
+            setElementVisibility(link, canPurchaseCatalog);
+            const parentLi = link.closest ? link.closest('.nav-item, li') : null;
+            if (parentLi) setElementVisibility(parentLi, canPurchaseCatalog);
         } else if (isSharedLink) {
             setElementVisibility(link, true);
             const parentLi = link.closest ? link.closest('.nav-item, li') : null;
@@ -327,6 +345,10 @@ function initNavbar(usuario, authModel) {
     for (const id of ['navClientes', 'navItemClientes']) {
         const el = document.getElementById(id);
         if (el) setElementVisibility(el, canViewCustomers);
+    }
+    for (const id of ['navCarrito', 'navItemCarrito']) {
+        const el = document.getElementById(id);
+        if (el) setElementVisibility(el, canPurchaseCatalog);
     }
     for (const id of ['navCatalogo', 'navItemCatalogo', 'navPedidos', 'navItemPedidos']) {
         const el = document.getElementById(id);
@@ -355,7 +377,7 @@ function navigateReplace(url) {
 }
 
 // Arranque común de vistas autenticadas: inicializa navbar inmediato, revela vista y refresca perfil en segundo plano
-export async function initAuthenticatedView({ authModel, requiredPermission = null } = {}) {
+export async function initAuthenticatedView({ authModel, requiredPermission = null, skipCartBadgeSync = false } = {}) {
     if (typeof document === 'undefined' || !authModel) return null;
 
     if (!authModel.isAuthenticated()) {
@@ -400,5 +422,11 @@ export async function initAuthenticatedView({ authModel, requiredPermission = nu
     if (document.body) {
         setElementVisibility(document.body, true);
     }
+
+    const canBuy = Boolean(resolveConnectedPermissions(usuario, authModel).canPurchaseCatalog);
+    if (!skipCartBadgeSync && canBuy && (document.getElementById('badgeCarritoNav') || document.getElementById('badgeCarritoCatalogo'))) {
+        cartModel.get().then((cart) => updateCartBadge(cart.totalQuantity)).catch(() => {});
+    }
+
     return usuario;
 }

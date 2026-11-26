@@ -1,10 +1,10 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
-version: 3.0.0
+version: 3.1.0
 estado_global: DONE
-ultima_actualizacion: 2026-11-25
+ultima_actualizacion: 2026-11-26
 formato_agente: AI-READABLE-SPEC-V1
-backend_status: JWT_BEARER_DB_RBAC_V5
+backend_status: JWT_BEARER_DB_RBAC_CART_V6
 ---
 
 # Especificacion de Requisitos del Sistema y Arquitectura de Seguridad
@@ -24,10 +24,10 @@ Este documento esta estructurado para ser analizado y actualizado de forma deter
 | Modulo | ID Modulo | Total Requisitos | Completados | En Progreso | Pendientes | Avance (%) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | Autenticacion y Roles | AUTH | 3 | 3 | 0 | 0 | 100% |
-| Gestion Comercial y Clientes | CORE | 4 | 4 | 0 | 0 | 100% |
+| Gestion Comercial y Clientes | CORE | 5 | 5 | 0 | 0 | 100% |
 | Reglas de Negocio | BIZ | 3 | 3 | 0 | 0 | 100% |
-| Seguridad y Control de Acceso | SEC | 6 | 6 | 0 | 0 | 100% |
-| **TOTAL** | **ALL** | **16** | **16** | **0** | **0** | **100%** |
+| Seguridad y Control de Acceso | SEC | 7 | 7 | 0 | 0 | 100% |
+| **TOTAL** | **ALL** | **18** | **18** | **0** | **0** | **100%** |
 
 ---
 
@@ -62,7 +62,15 @@ El backend ASP.NET Core (`APIkey`, .NET 10 / MySQL en `APIKey_ProyectoWEB_II`, e
 * `POST /api/orders`: `[Authorize(Roles = "CLIENTE")]` transaccional con descuento atomico de stock.
 * `PATCH /api/orders/{id}/status`: Valida el rol directamente en BD (`ADMIN` 5 estados, `EMPLEADO` `403 Forbidden`, `CLIENTE` solo cancelacion de pedidos propios activos) con reintegro atomico de stock y estado `CANCELADO` irreversible.
 
-### 3.6. Controladores Inexistentes en Backend
+### 3.6. CartController (`/api/cart`)
+* Protegido integralmente por `[Authorize(Roles = "CLIENTE")]` validado en BD (`ADMIN` y `EMPLEADO` reciben `403 Forbidden`).
+* Persiste los productos del carrito en MySQL (`cart_items`, migracion EF Core `AddCartItems`, clave primaria compuesta `(UserID, ProductID)` con FKs `Restrict` hacia `users` y `products`).
+* `GET /api/cart`: Retorna el carrito persistente del usuario autenticado (`TotalQuantity`, `Total`, `Items`).
+* `POST /api/cart/items`: Transaccional con bloqueo `FOR UPDATE` en orden aciclico (`cart_items` -> `products`). Valida producto activo (`!Discontinued`) y stock disponible, descuenta/reserva `UnitsInStock` en `products` y guarda/incrementa la cantidad en `cart_items`.
+* `POST /api/cart/checkout`: Transaccional con bloqueo `FOR UPDATE` sobre `cart_items`. Convierte todos los productos guardados en el carrito en una orden (`Order` + `OrderDetails`, estado `PENDIENTE`, precios leidos en servidor) sin volver a descontar stock y vacia el carrito del usuario, retornando `201 Created` (`OrderDto`).
+* `DELETE /api/cart`: **Cancelacion completa exclusiva del carrito** (no existe eliminacion parcial de articulos individuales). Bloquea `cart_items` ordenados por `ProductID`, reintegra atomica y completamente todas las unidades a `products.UnitsInStock` (`LEAST(32767, COALESCE(UnitsInStock, 0) + qty)`) y vacia el carrito.
+
+### 3.7. Controladores Inexistentes en Backend
 * **Categorias y Proveedores:** NO existen `CategoriesController` ni `SuppliersController` en el backend. Las vistas que los requieran deben operar mediante cache local, catalogos estaticos de referencia o fallback silencioso ya previsto en `categoryService.js` y `supplierService.js`.
 * **Empleados:** NO existe `EmployeesController`. Las cuentas de empleados se gestionan mediante el sistema de autenticacion de usuarios y asignacion de roles en frontend.
 
@@ -103,6 +111,11 @@ El control de acceso basado en roles reside exclusivamente en el servidor y en l
 | **Listar Todas las Ordenes** | `/api/orders` | GET | ✅ | ✅ | ❌ (403) |
 | **Mis Ordenes** | `/api/orders/mine` | GET | ✅ | ✅ | ✅ (Propias) |
 | **Crear Orden / Compra** | `/api/orders` | POST | ❌ (403) | ❌ (403) | ✅ |
+| **Carrito (Vista)** | `carrito.html` | GET | ❌ (403) | ❌ (403) | ✅ |
+| **Consultar Carrito** | `/api/cart` | GET | ❌ (403) | ❌ (403) | ✅ |
+| **Agregar al Carrito** | `/api/cart/items` | POST | ❌ (403) | ❌ (403) | ✅ |
+| **Comprar Carrito** | `/api/cart/checkout` | POST | ❌ (403) | ❌ (403) | ✅ |
+| **Cancelar Carrito Completo** | `/api/cart` | DELETE | ❌ (403) | ❌ (403) | ✅ |
 | **Detalle de Orden** | `/api/orders/{id}` | GET | ✅ | ✅ | ✅ (Solo propia / 403) |
 | **Cambiar Estado / Cancelar** | `/api/orders/{id}/status` | PATCH | ✅ (5 estados) | ❌ (403) | ✅ (Solo cancelar propia) |
 
@@ -217,6 +230,16 @@ El frontend aplica el principio de minima exposicion y cero confianza en el clie
   * - [x] **[Frontend]** `pedidos.html`, `ordenes.html` y `ordersController.js` incorporan filtro de 5 estados, control de cambio de estado exclusivo para `ADMIN` (en tabla y modal) con confirmacion al devolver `En transito`/`Entregado` a `Pendiente` y al cancelar `Pendiente`/`Pendiente de envio`/`En transito`, bloqueo de cancelacion en `Entregado` y bloqueo irreversible en `Cancelado`.
   * - [x] **[Frontend]** Boton `Cancelar Compra` visible unicamente para `CLIENTE` en sus pedidos propios no entregados ni cancelados, con confirmacion previa obligatoria.
 
+#### [REQ-CORE-005] Modulo de Carrito de Compras Persistente y Cancelacion Completa
+* **Estado:** `[DONE]`
+* **Prioridad:** Alta
+* **Descripcion:** Permitir al `CLIENTE` agregar productos desde el catalogo a un carrito persistente en base de datos, conservando los productos guardados hasta que acceda a la pantalla de carrito (`carrito.html`) para finalizar la compra o cancelar el carrito completo devolviendo todos los productos al inventario.
+* **Criterios de Aceptacion:**
+  * - [x] **[Backend]** Tabla `cart_items` (`UserID`, `ProductID`, `Quantity`, `AddedAt`) con clave primaria compuesta `(UserID, ProductID)` y FKs `Restrict` mediante migracion EF Core `AddCartItems`.
+  * - [x] **[Backend]** `CartController` exclusivo `CLIENTE` (`GET /api/cart`, `POST /api/cart/items`, `POST /api/cart/checkout`, `DELETE /api/cart`) con reserva atomica de stock al agregar, conversion a `Order` + `OrderDetails` al comprar y devolucion completa de todos los productos al inventario al cancelar (sin cancelaciones parciales).
+  * - [x] **[Frontend]** `catalogo.html` y `catalogController.js` permiten elegir cantidad y agregar productos al carrito (`cartModel.addItem`), actualizando stock y contador de carrito en la barra de navegacion sin finalizar la compra en el catalogo.
+  * - [x] **[Frontend]** Pantalla dedicada `carrito.html` y `cartController.js` protegida por `authGuard('canPurchaseCatalog')` con tabla accesible de productos guardados, formulario de envio para confirmar compra (`cartModel.checkout`), comprobante de orden y boton `Cancelar Carrito` (`cartModel.cancel`) con confirmacion obligatoria para devolver todos los productos.
+
 ---
 
 ### Modulo: Reglas de Negocio (BIZ)
@@ -311,6 +334,14 @@ El frontend aplica el principio de minima exposicion y cero confianza en el clie
   * - [x] **[Frontend]** Renderizado de cronometro interactivo que indique el tiempo restante de bloqueo y prevenga el envio de nuevas solicitudes.
   * - [x] **[Frontend]** Desafio interactivo de verificacion (reto captcha en cliente) antes de reanudar el formulario una vez expirado el tiempo de bloqueo.
 
+#### [REQ-SEC-007] Cero Exposicion de Logs, Avisos y Errores Internos del Backend
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Descripcion:** Garantizar que ni el backend ni el frontend expongan informacion interna que comprometa la infraestructura o el servidor a traves de logs de consola, avisos visuales, cabeceras de servidor ni cuerpos de error.
+* **Criterios de Aceptacion:**
+  * - [x] **[Backend]** `Program.cs` desactiva cabecera `Server` de Kestrel, agrega `X-Content-Type-Options: nosniff` y `Referrer-Policy: no-referrer`, omite `instance`/`traceId`/`exception` en `ProblemDetails`, sanitiza errores de `ModelState` y reemplaza mensajes tecnicos de autenticacion/500 por respuestas genericas seguras; `appsettings.json` restringe niveles de log a `Warning`/`Error`.
+  * - [x] **[Frontend]** Eliminacion total de llamadas `console.*` en `src/`, fortalecimiento de `SENSITIVE_ERROR_PATTERN` (filtrando dominios, URLs, motores de BD y excepciones de framework) y mensajes genericos seguros en `apiClient.js`, `uiHelpers.js` y vistas HTML.
+
 ---
 
 ## 7. Plantilla para Nuevos Requisitos (Escalabilidad)
@@ -344,3 +375,4 @@ Para incorporar un nuevo requisito, agrega el siguiente bloque en el modulo corr
 | 2026-11-24 | Antigravity | REQ-CORE-004 | Extension controlada de clientes unificados y ciclo de estados/cancelacion de pedidos (16/16 requisitos `[DONE]`): `CustomersController.cs` unifica Northwind + cuentas activas `CLIENTE` con clave dinamica determinista (iniciales + autoincremento, correo en Empresa y usuario en Contacto); migracion EF Core `AddOrderStatus` (`orders.Status`); `PATCH /api/orders/{id}/status` en `OrdersController.cs` con RBAC (`ADMIN` 5 estados, `CLIENTE` cancelacion de pedidos propios activos), estado `CANCELADO` irreversible, bloqueo de cancelacion en `ENTREGADO` y reintegro atomico de stock; integracion en `orderModel.js`, `orderService.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`; 38/38 pruebas unitarias (`tests/fase1.test.mjs` a `tests/fase7.test.mjs`) y `dotnet build` sin errores. |
 | 2026-11-25 | Antigravity | ALL (v2.0.0) | Endurecimiento integral de seguridad y menor exposicion del backend (Fase 8): creacion de tabla `roles` (`ADMIN`, `EMPLEADO`, `CLIENTE`) y FK `users.RoleId` (default `CLIENTE`) en migracion EF Core `AddRolesAndSeedUsers` sembrando 1 admin (`admin`) y 2 empleados (`Robe`, `Leo`) con PBKDF2-SHA256; eliminacion de `ResolveUserRole` y listas hardcodeadas en backend; autorizacion estricta en servidor mediante `[ApiKey]` + `[RequireRoles]` en todos los controladores; nuevo endpoint `GET /api/auth/me` con banderas de UI (`UiPermissionsDto`) sin exponer nombres de roles; eliminacion de `POST /api/apikeys/regenerate` y su modulo/boton en frontend; eliminacion de exposicion de roles en frontend (`ROLES`, whitelists, `#badgeRol`, `#badgeRoleCliente`, campo `role` en `sessionStorage`); eliminacion del campo de configuracion de URL del backend en `login.html` y `localStorage` (`https://localhost:7039/api` fija); y eliminacion de textos que revelen rutas de la API en frontend. |
 | 2026-11-25 | Antigravity | ALL (v3.0.0) | Migracion integral de autenticacion y autorizacion desde API Key hacia JWT Bearer (`Authorization: Bearer <token>`): eliminacion total de logica `X-API-KEY` / `apiKey` / `northwind_api_key` en frontend (`config.js`, `httpClient.js`, `authService.js`), almacenamiento seguro exclusivo en `sessionStorage` (`northwind_jwt_token` + `auth_session` firmada con validacion de `exp` JWT y `expiresAt`), correccion de guardia `DOMContentLoaded` en `productsController.js`, y actualizacion completa de la suite `tests/*.test.mjs` para verificar autenticacion exclusivamente JWT. |
+| 2026-11-26 | Antigravity | REQ-CORE-005, REQ-SEC-007 (v3.1.0) | Incorporacion del modulo de carrito de compras persistente en BD (`CartItem`, migracion `AddCartItems`, `CartController` con reserva atomica de stock, compra completa en `/api/cart/checkout` y cancelacion completa exclusiva en `DELETE /api/cart` devolviendo todos los productos), pantalla dedicada `carrito.html` + `cartController.js` + `cartModel.js`, actualizacion de `catalogo.html`/`catalogController.js` para agregar al carrito, enlace con contador en navbar y endurecimiento integral de seguridad eliminando logs de consola en frontend y saneando `ProblemDetails`, validaciones de modelo, cabeceras y niveles de log en backend. |

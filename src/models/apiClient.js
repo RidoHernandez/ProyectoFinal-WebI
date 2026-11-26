@@ -27,6 +27,9 @@ export const PRODUCTS = '/Products';
 export const CUSTOMERS = '/customers';
 export const ORDERS = '/orders';
 export const ORDERS_MINE = '/orders/mine';
+export const CART = '/cart';
+export const CART_ITEMS = '/cart/items';
+export const CART_CHECKOUT = '/cart/checkout';
 
 export const ENDPOINTS = Object.freeze({
     AUTH_LOGIN,
@@ -35,7 +38,10 @@ export const ENDPOINTS = Object.freeze({
     PRODUCTS,
     CUSTOMERS,
     ORDERS,
-    ORDERS_MINE
+    ORDERS_MINE,
+    CART,
+    CART_ITEMS,
+    CART_CHECKOUT
 });
 
 const STATUS_ERROR_MESSAGES = Object.freeze({
@@ -43,11 +49,11 @@ const STATUS_ERROR_MESSAGES = Object.freeze({
     401: 'Sesión no autorizada o expirada. Inicia sesión nuevamente.',
     403: 'No tienes permisos suficientes para realizar esta acción.',
     404: 'El recurso solicitado no fue encontrado.',
-    409: 'Conflicto de integridad: el recurso tiene registros vinculados y no puede eliminarse.',
-    500: 'Ocurrió un error interno en el servidor. Intenta nuevamente más tarde.'
+    409: 'La operación no pudo completarse por un conflicto con el estado actual.',
+    500: 'Ocurrió un error al procesar la solicitud. Intenta nuevamente más tarde.'
 });
 
-const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|MySql|SqlException|InnerException|DbUpdateException|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|https?:\/\/localhost(?::\d+)?)/i;
+const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|EntityFramework|Pomelo|MySql|MariaDB|SqlException|SQLSTATE|InnerException|DbUpdateException|Kestrel|Text\.Json|Newtonsoft|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|azurewebsites\.net|https?:\/\/[^\s]+)/i;
 
 const GENERIC_HTTP_REASONS = new Set([
     'bad request',
@@ -152,7 +158,7 @@ export function normalizeProblemDetails(payload, status = 500) {
     const defaultMsg = STATUS_ERROR_MESSAGES[numericStatus]
         || (numericStatus >= 500
             ? STATUS_ERROR_MESSAGES[500]
-            : `Error HTTP ${numericStatus} al procesar la solicitud.`);
+            : 'No se pudo procesar la solicitud. Intenta nuevamente.');
 
     if (numericStatus >= 500) {
         return {
@@ -346,7 +352,7 @@ export const httpClient = async (endpoint, options = {}) => {
 
         if (!response.ok) {
             const publicAuth = isPublicEndpoint(endpoint);
-            const problemDetails = publicAuth && response.status >= 500
+            const problemDetails = response.status >= 500
                 ? normalizeProblemDetails(null, response.status)
                 : await parseProblemDetails(response);
             response.problemDetails = problemDetails;
@@ -355,24 +361,12 @@ export const httpClient = async (endpoint, options = {}) => {
             if (publicAuth) return response;
 
             if (response.status === 401) {
-                console.warn('401 Unauthorized:', problemDetails.message);
                 handleUnauthorized(endpoint, options);
-            } else if (response.status === 403) {
-                console.warn('403 Forbidden:', problemDetails.message);
-            } else if (response.status === 404) {
-                console.warn('404 Not Found:', problemDetails.message);
-            } else if (response.status === 409) {
-                console.warn('409 Conflict:', problemDetails.message);
-            } else if (response.status >= 500) {
-                console.error(`HTTP ${response.status} Server Error:`, problemDetails.message);
             }
         }
 
         return response;
-    } catch (error) {
-        if (!isPublicEndpoint(endpoint)) {
-            console.error('Error de conexión con el servidor:', error?.message || 'Fallo de red');
-        }
-        throw error;
+    } catch {
+        throw new Error('No fue posible conectar con el servicio. Intenta nuevamente más tarde.');
     }
 };

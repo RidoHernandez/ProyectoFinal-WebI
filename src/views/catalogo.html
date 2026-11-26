@@ -63,6 +63,11 @@
                     <li class="nav-item" id="navItemCatalogo">
                         <a class="nav-link active fw-bold" id="navCatalogo" aria-current="page" href="./catalogo.html">Catálogo</a>
                     </li>
+                    <li class="nav-item d-none" id="navItemCarrito" hidden>
+                        <a class="nav-link" id="navCarrito" href="./carrito.html">
+                            Carrito <span id="badgeCarritoNav" class="badge bg-primary ms-1 d-none" hidden>0</span>
+                        </a>
+                    </li>
                     <li class="nav-item d-none" id="navItemClientes" hidden>
                         <a class="nav-link" id="navClientes" href="./clientes.html">Clientes</a>
                     </li>
@@ -80,16 +85,21 @@
         </div>
     </nav>
 
-    <!-- Contenido Principal (Vista de Solo Lectura para Autoservicio) -->
+    <!-- Contenido Principal -->
     <main class="container-fluid px-4 py-4">
         <div id="alertContainer403"></div>
 
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
             <div>
                 <h2 class="fw-bold mb-0">Catálogo Comercial de Productos</h2>
-                <small class="text-muted">Consulta de precios y disponibilidad en inventario</small>
+                <small class="text-muted">Consulta de precios, disponibilidad y selección para carrito de compras</small>
             </div>
-            <span id="lblTotalCatalogo" class="badge bg-primary-subtle text-primary fs-6">Cargando...</span>
+            <div class="d-flex align-items-center gap-2">
+                <a href="./carrito.html" id="btnIrCarritoCatalogo" class="btn btn-primary btn-sm fw-semibold d-none" hidden>
+                    Ver Carrito <span id="badgeCarritoCatalogo" class="badge text-bg-light ms-1 d-none" hidden>0</span>
+                </a>
+                <span id="lblTotalCatalogo" class="badge bg-primary-subtle text-primary fs-6">Cargando...</span>
+            </div>
         </div>
 
         <!-- Barra de búsqueda y filtros en tiempo real -->
@@ -131,9 +141,9 @@
         <div id="contenedorCatalogo" class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-xl-4 g-3"></div>
     </main>
 
-    <!-- Modal Detalle y Compra de Producto en Catálogo -->
+    <!-- Modal Detalle y Agregar al Carrito -->
     <div class="modal fade" id="modalDetalleCatalogo" tabindex="-1" aria-labelledby="modalCatalogoTitulo" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
                     <div>
@@ -161,89 +171,51 @@
 
                     <div id="alertCompraCatalogo" class="alert alert-danger d-none py-2 px-3 small mb-3" role="alert" hidden></div>
 
-                    <!-- Comprobante de compra exitosa -->
+                    <!-- Confirmación de producto agregado al carrito -->
                     <div id="resumenCompraCatalogo" class="alert alert-success d-none mb-3" role="status" aria-live="polite" hidden>
-                        <h6 class="fw-bold mb-2">¡Compra realizada con éxito!</h6>
-                        <ul class="list-unstyled small mb-2">
-                            <li><strong>N° de Orden:</strong> <span id="resCompraOrdenId">-</span></li>
+                        <h6 class="fw-bold mb-2">¡Producto agregado al carrito!</h6>
+                        <ul class="list-unstyled small mb-3">
                             <li><strong>Producto:</strong> <span id="resCompraProducto">-</span></li>
-                            <li><strong>Unidades compradas:</strong> <span id="resCompraCantidad">0</span></li>
-                            <li><strong>Total pagado:</strong> <span id="resCompraTotal">$0.00</span></li>
-                            <li><strong>Enviar a:</strong> <span id="resCompraDestino">-</span></li>
+                            <li><strong>Unidades agregadas:</strong> <span id="resCompraCantidad">0</span></li>
+                            <li><strong>Subtotal agregado:</strong> <span id="resCompraTotal">$0.00</span></li>
+                            <li><strong>Total en tu carrito:</strong> <span id="resCompraTotalCarrito">0</span> unidad(es)</li>
                             <li><strong>Stock restante:</strong> <span id="resCompraStockRestante">0</span> unidad(es)</li>
                         </ul>
-                        <a href="./pedidos.html" id="lnkVerMisPedidos" class="btn btn-sm btn-outline-success fw-semibold">Ver en Mis Pedidos</a>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a href="./carrito.html" id="lnkIrAlCarrito" class="btn btn-sm btn-primary fw-semibold">Ir al Carrito</a>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Seguir comprando</button>
+                        </div>
                     </div>
 
-                    <!-- Formulario de compra -->
+                    <!-- Formulario para agregar al carrito -->
                     <section id="seccionCompraCatalogo" class="d-none" hidden aria-labelledby="tituloCompraCatalogo">
-                        <h6 id="tituloCompraCatalogo" class="fw-bold border-bottom pb-2 mb-3">Realizar Compra</h6>
+                        <h6 id="tituloCompraCatalogo" class="fw-bold border-bottom pb-2 mb-3">Agregar al Carrito</h6>
                         <form id="formCompraCatalogo" aria-labelledby="tituloCompraCatalogo" novalidate>
                             <input type="hidden" id="compraProductoId">
                             <div class="row g-3 mb-3">
                                 <div class="col-md-6">
                                     <label for="txtCantidadCompra" class="form-label small fw-semibold">
-                                        Unidades a comprar <span class="text-danger" aria-hidden="true">*</span>
+                                        Unidades a agregar <span class="text-danger" aria-hidden="true">*</span>
                                     </label>
                                     <input type="number" id="txtCantidadCompra" name="cantidad" class="form-control"
                                            min="1" step="1" inputmode="numeric" value="1" required
                                            aria-describedby="ayudaCantidadCompra">
-                                    <div id="ayudaCantidadCompra" class="form-text">Ingresa un número entero entre 1 y el stock disponible.</div>
+                                    <div id="ayudaCantidadCompra" class="form-text">Entero entre 1 y el stock disponible.</div>
                                     <div id="feedbackCantidadCompra" class="invalid-feedback">Ingresa una cantidad entera válida dentro del stock disponible.</div>
                                 </div>
                                 <div class="col-md-6 d-flex flex-column justify-content-center">
                                     <div class="p-3 bg-primary-subtle rounded border border-primary-subtle">
-                                        <span class="small text-secondary d-block">Total estimado</span>
+                                        <span class="small text-secondary d-block">Subtotal estimado</span>
                                         <strong id="lblTotalCompra" class="fs-4 text-primary">$0.00</strong>
                                     </div>
                                 </div>
                             </div>
-
-                            <fieldset class="border rounded p-3 mb-3">
-                                <legend class="float-none w-auto px-2 fs-6 fw-semibold text-secondary mb-0">Datos de envío</legend>
-                                <div class="row g-3 mt-0">
-                                    <div class="col-12">
-                                        <label for="txtEnvioNombre" class="form-label small fw-semibold">
-                                            Destinatario <span class="text-danger" aria-hidden="true">*</span>
-                                        </label>
-                                        <input type="text" id="txtEnvioNombre" name="shipName" class="form-control"
-                                               autocomplete="name" minlength="2" maxlength="80" required
-                                               placeholder="Nombre completo de quien recibe">
-                                        <div id="feedbackEnvioNombre" class="invalid-feedback">Ingresa el nombre del destinatario (mínimo 2 caracteres).</div>
-                                    </div>
-                                    <div class="col-12">
-                                        <label for="txtEnvioDireccion" class="form-label small fw-semibold">
-                                            Dirección de envío <span class="text-danger" aria-hidden="true">*</span>
-                                        </label>
-                                        <textarea id="txtEnvioDireccion" name="shipAddress" class="form-control" rows="2"
-                                                  autocomplete="street-address" minlength="4" maxlength="200" required
-                                                  placeholder="Calle, número, colonia o referencias"></textarea>
-                                        <div id="feedbackEnvioDireccion" class="invalid-feedback">Ingresa una dirección de envío válida (mínimo 4 caracteres).</div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label for="txtEnvioCiudad" class="form-label small fw-semibold">
-                                            Ciudad <span class="text-danger" aria-hidden="true">*</span>
-                                        </label>
-                                        <input type="text" id="txtEnvioCiudad" name="shipCity" class="form-control"
-                                               autocomplete="address-level2" minlength="2" maxlength="60" required
-                                               placeholder="Ej. Ciudad de México">
-                                        <div id="feedbackEnvioCiudad" class="invalid-feedback">Ingresa la ciudad de entrega.</div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label for="txtEnvioPais" class="form-label small fw-semibold">
-                                            País <span class="text-danger" aria-hidden="true">*</span>
-                                        </label>
-                                        <input type="text" id="txtEnvioPais" name="shipCountry" class="form-control"
-                                               autocomplete="country-name" minlength="2" maxlength="60" required
-                                               placeholder="Ej. México">
-                                        <div id="feedbackEnvioPais" class="invalid-feedback">Ingresa el país de entrega.</div>
-                                    </div>
-                                </div>
-                            </fieldset>
-
+                            <p class="small text-muted mb-3">
+                                El producto quedará guardado en tu carrito hasta que accedas a la pantalla de Carrito para completar o cancelar tu compra.
+                            </p>
                             <div class="d-flex justify-content-end gap-2">
                                 <button type="button" id="btnCerrarModalCatalogo" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-                                <button type="submit" id="btnConfirmarCompra" class="btn btn-primary fw-semibold">Comprar</button>
+                                <button type="submit" id="btnAgregarCarrito" class="btn btn-primary fw-semibold">Agregar al Carrito</button>
                             </div>
                         </form>
                     </section>

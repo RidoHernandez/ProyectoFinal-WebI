@@ -1,15 +1,15 @@
 import { authGuard, authModel } from "../models/authModel.js";
 import { productModel } from "../models/productModel.js";
-import { orderModel } from "../models/orderModel.js";
+import { cartModel, validateCartQuantity } from "../models/cartModel.js";
 import {
-    escapeHtml,
     formatCurrency,
     initAuthenticatedView,
     resolveConnectedPermissions,
     setElementVisibility,
     showModal,
     bindModalDismiss,
-    extractProblemMessage
+    extractProblemMessage,
+    updateCartBadge
 } from "./uiHelpers.js";
 
 authGuard();
@@ -38,6 +38,76 @@ function filtrarProductosCatalogo(lista, { texto = '', precioMin = null, precioM
     });
 }
 
+function renderCatalogNotice(contenedor, message, variant = 'info') {
+    contenedor.textContent = '';
+    const col = document.createElement('div');
+    col.className = 'col-12';
+    const alert = document.createElement('div');
+    alert.className = `alert alert-${variant} mb-0`;
+    alert.textContent = message;
+    col.appendChild(alert);
+    contenedor.appendChild(col);
+}
+
+function buildProductCard(prod) {
+    const agotado = prod.unitsInStock <= 0;
+
+    const col = document.createElement('div');
+    col.className = 'col';
+
+    const card = document.createElement('div');
+    card.className = agotado
+        ? 'card h-100 shadow-sm card-producto card-agotado border-danger-subtle opacity-75'
+        : 'card h-100 shadow-sm border-0 card-producto card-disponible';
+    card.dataset.productId = String(prod.productId);
+    card.dataset.stockStatus = agotado ? 'agotado' : 'disponible';
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-label', `Ver detalle de ${prod.productName}`);
+
+    const body = document.createElement('div');
+    body.className = 'card-body d-flex flex-column';
+
+    const header = document.createElement('div');
+    header.className = 'd-flex justify-content-between align-items-start gap-2 mb-2';
+
+    const title = document.createElement('h5');
+    title.className = 'card-title fw-bold text-dark mb-0';
+    title.textContent = prod.productName;
+
+    const idBadge = document.createElement('span');
+    idBadge.className = 'badge bg-light text-secondary border';
+    idBadge.textContent = `#${prod.productId}`;
+
+    header.append(title, idBadge);
+
+    const price = document.createElement('p');
+    price.className = 'card-text text-primary fs-5 fw-semibold mb-3';
+    price.textContent = formatCurrency(prod.unitPrice);
+
+    const footer = document.createElement('div');
+    footer.className = 'mt-auto d-flex flex-wrap justify-content-between align-items-center gap-1';
+
+    const stockBadge = document.createElement('span');
+    stockBadge.className = agotado
+        ? 'badge bg-danger-subtle text-danger border border-danger-subtle badge-agotado'
+        : 'badge bg-success-subtle text-success border border-success-subtle badge-disponible';
+    stockBadge.textContent = agotado ? 'Agotado' : `Disponible (Stock: ${prod.unitsInStock})`;
+    footer.appendChild(stockBadge);
+
+    if (prod.discontinued) {
+        const discBadge = document.createElement('span');
+        discBadge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle badge-descontinuado';
+        discBadge.textContent = 'Descontinuado';
+        footer.appendChild(discBadge);
+    }
+
+    body.append(header, price, footer);
+    card.appendChild(body);
+    col.appendChild(card);
+    return col;
+}
+
 function renderizarTarjetas(lista) {
     const contenedor = document.getElementById('contenedorCatalogo');
     if (!contenedor) return;
@@ -46,39 +116,16 @@ function renderizarTarjetas(lista) {
     if (lblContador) lblContador.textContent = `${lista.length} producto(s)`;
 
     if (lista.length === 0) {
-        contenedor.innerHTML = '<div class="col-12"><div class="alert alert-info mb-0">No hay productos disponibles con los criterios seleccionados.</div></div>';
+        renderCatalogNotice(contenedor, 'No hay productos disponibles con los criterios seleccionados.', 'info');
         return;
     }
 
-    contenedor.innerHTML = lista.map((prod) => {
-        const agotado = prod.unitsInStock <= 0;
-        const cardClass = agotado
-            ? 'card h-100 shadow-sm card-producto card-agotado border-danger-subtle opacity-75'
-            : 'card h-100 shadow-sm border-0 card-producto card-disponible';
-        const stockBadgeClass = agotado
-            ? 'badge bg-danger-subtle text-danger border border-danger-subtle badge-agotado'
-            : 'badge bg-success-subtle text-success border border-success-subtle badge-disponible';
-        const stockText = agotado ? 'Agotado' : `Disponible (Stock: ${escapeHtml(prod.unitsInStock)})`;
-        const discBadge = prod.discontinued
-            ? '<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle badge-descontinuado">Descontinuado</span>'
-            : '';
-
-        return `
-        <div class="col">
-            <div class="${cardClass}" data-product-id="${escapeHtml(prod.productId)}" data-stock-status="${agotado ? 'agotado' : 'disponible'}" role="button" tabindex="0" aria-label="Ver detalle de ${escapeHtml(prod.productName)}">
-                <div class="card-body d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-                        <h5 class="card-title fw-bold text-dark mb-0">${escapeHtml(prod.productName)}</h5>
-                        <span class="badge bg-light text-secondary border">#${escapeHtml(prod.productId)}</span>
-                    </div>
-                    <p class="card-text text-primary fs-5 fw-semibold mb-3">${escapeHtml(formatCurrency(prod.unitPrice))}</p>
-                    <div class="mt-auto d-flex flex-wrap justify-content-between align-items-center gap-1">
-                        <span class="${stockBadgeClass}">${stockText}</span>${discBadge}
-                    </div>
-                </div>
-            </div>
-        </div>`;
-    }).join('');
+    const fragment = document.createDocumentFragment();
+    for (const prod of lista) {
+        fragment.appendChild(buildProductCard(prod));
+    }
+    contenedor.textContent = '';
+    contenedor.appendChild(fragment);
 }
 
 function aplicarFiltrosActivos() {
@@ -121,44 +168,12 @@ async function cargarCatalogo() {
     const contenedor = document.getElementById('contenedorCatalogo');
     try {
         productos = await productModel.getAll();
-        renderizarTarjetas(productos);
-    } catch (err) {
-        console.warn('Aviso al cargar catálogo:', err?.message || err);
+        aplicarFiltrosActivos();
+    } catch {
         if (contenedor) {
-            contenedor.innerHTML = '<div class="col-12"><div class="alert alert-warning mb-0">No se pudieron cargar los productos.</div></div>';
+            renderCatalogNotice(contenedor, 'No se pudieron cargar los productos. Intenta nuevamente.', 'warning');
         }
     }
-}
-
-function validarCantidadCompra(rawValue, maxStock = 0) {
-    const str = String(rawValue ?? '').trim();
-    const qty = Number(str);
-    if (!/^\d+$/.test(str) || !Number.isSafeInteger(qty) || qty < 1) {
-        return { valid: false, error: 'La cantidad debe ser un entero positivo (mínimo 1).' };
-    }
-    if (maxStock <= 0) {
-        return { valid: false, error: 'Este producto no cuenta con stock disponible.' };
-    }
-    if (qty > maxStock) {
-        return { valid: false, error: `Solo hay ${maxStock} unidad(es) disponibles en inventario.` };
-    }
-    return { valid: true, value: qty };
-}
-
-function validarDatosEnvio({ shipName = '', shipAddress = '', shipCity = '', shipCountry = '' } = {}) {
-    const values = {
-        shipName: String(shipName).trim(),
-        shipAddress: String(shipAddress).trim(),
-        shipCity: String(shipCity).trim(),
-        shipCountry: String(shipCountry).trim()
-    };
-    const fieldErrors = {};
-    if (values.shipName.length < 2 || values.shipName.length > 80) fieldErrors.shipName = 'Ingresa el nombre del destinatario (2 a 80 caracteres).';
-    if (values.shipAddress.length < 4 || values.shipAddress.length > 200) fieldErrors.shipAddress = 'Ingresa una dirección de envío válida (4 a 200 caracteres).';
-    if (values.shipCity.length < 2 || values.shipCity.length > 60) fieldErrors.shipCity = 'Ingresa la ciudad de entrega (2 a 60 caracteres).';
-    if (values.shipCountry.length < 2 || values.shipCountry.length > 60) fieldErrors.shipCountry = 'Ingresa el país de entrega (2 a 60 caracteres).';
-
-    return { valid: Object.keys(fieldErrors).length === 0, fieldErrors, values };
 }
 
 function findProducto(productId) {
@@ -181,9 +196,7 @@ function showCompraAlert(message = '', visible = Boolean(message), variant = 'da
 }
 
 function resetValidacionCompra() {
-    ['txtCantidadCompra', 'txtEnvioNombre', 'txtEnvioDireccion', 'txtEnvioCiudad', 'txtEnvioPais'].forEach((id) => {
-        setFieldValidationState(document.getElementById(id), false);
-    });
+    setFieldValidationState(document.getElementById('txtCantidadCompra'), false);
 }
 
 function actualizarTotalCompra() {
@@ -192,7 +205,7 @@ function actualizarTotalCompra() {
     const lblTotal = document.getElementById('lblTotalCompra');
     if (!prod || !lblTotal) return;
 
-    const validation = validarCantidadCompra(txtCantidad?.value, prod.unitsInStock);
+    const validation = validateCartQuantity(txtCantidad?.value, prod.unitsInStock);
     const total = validation.valid ? Math.round((validation.value * prod.unitPrice + Number.EPSILON) * 100) / 100 : 0;
     lblTotal.textContent = formatCurrency(total);
     if (validation.valid) setFieldValidationState(txtCantidad, false);
@@ -237,28 +250,22 @@ function abrirModalProductoCatalogo(productId) {
     setElementVisibility(document.getElementById('footerSoloLecturaCatalogo'), !canBuy);
 
     if (canBuy) {
-        const puedeComprar = prod.unitsInStock > 0 && !prod.discontinued;
+        const puedeAgregar = prod.unitsInStock > 0 && !prod.discontinued;
         document.getElementById('compraProductoId').value = String(prod.productId);
 
         const txtCantidad = document.getElementById('txtCantidadCompra');
-        const txtNombre = document.getElementById('txtEnvioNombre');
         txtCantidad.max = String(Math.max(1, prod.unitsInStock));
-        txtCantidad.value = puedeComprar ? '1' : '0';
+        txtCantidad.value = puedeAgregar ? '1' : '0';
 
-        if (!txtNombre.value.trim() && usuario?.username) {
-            txtNombre.value = usuario.username;
-        }
+        ['txtCantidadCompra', 'btnAgregarCarrito'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = !puedeAgregar;
+        });
 
-        ['txtCantidadCompra', 'txtEnvioNombre', 'txtEnvioDireccion', 'txtEnvioCiudad', 'txtEnvioPais', 'btnConfirmarCompra']
-            .forEach((id) => {
-                const el = document.getElementById(id);
-                if (el) el.disabled = !puedeComprar;
-            });
-
-        if (!puedeComprar) {
+        if (!puedeAgregar) {
             showCompraAlert(
                 prod.discontinued
-                    ? 'Este producto está descontinuado y no se encuentra disponible para compra.'
+                    ? 'Este producto está descontinuado y no puede agregarse al carrito.'
                     : 'Este producto está agotado temporalmente.',
                 true,
                 'warning'
@@ -270,65 +277,45 @@ function abrirModalProductoCatalogo(productId) {
     showModal(modalEl);
 }
 
-async function procesarCompraCatalogo(event) {
+async function procesarAgregarAlCarrito(event) {
     event?.preventDefault?.();
 
     const usuario = authModel.getCurrentUser();
     if (!resolveConnectedPermissions(usuario, authModel).canPurchaseCatalog) {
-        showCompraAlert('Tu cuenta no está habilitada para realizar compras desde el catálogo.', true);
+        showCompraAlert('Tu cuenta no está habilitada para agregar productos al carrito.', true);
         return;
     }
 
     const prod = findProducto(document.getElementById('compraProductoId')?.value);
     if (!prod || prod.discontinued || prod.unitsInStock <= 0) {
-        showCompraAlert('Este producto ya no está disponible para compra.', true, 'warning');
+        showCompraAlert('Este producto ya no está disponible.', true, 'warning');
         return;
     }
 
     const txtCantidad = document.getElementById('txtCantidadCompra');
-    const txtNombre = document.getElementById('txtEnvioNombre');
-    const txtDir = document.getElementById('txtEnvioDireccion');
-    const txtCiudad = document.getElementById('txtEnvioCiudad');
-    const txtPais = document.getElementById('txtEnvioPais');
-
-    const qtyResult = validarCantidadCompra(txtCantidad?.value, prod.unitsInStock);
+    const qtyResult = validateCartQuantity(txtCantidad?.value, prod.unitsInStock);
     setFieldValidationState(txtCantidad, !qtyResult.valid, document.getElementById('feedbackCantidadCompra'), qtyResult.error || '');
 
-    const shipResult = validarDatosEnvio({
-        shipName: txtNombre?.value,
-        shipAddress: txtDir?.value,
-        shipCity: txtCiudad?.value,
-        shipCountry: txtPais?.value
-    });
-
-    setFieldValidationState(txtNombre, Boolean(shipResult.fieldErrors.shipName), document.getElementById('feedbackEnvioNombre'), shipResult.fieldErrors.shipName || '');
-    setFieldValidationState(txtDir, Boolean(shipResult.fieldErrors.shipAddress), document.getElementById('feedbackEnvioDireccion'), shipResult.fieldErrors.shipAddress || '');
-    setFieldValidationState(txtCiudad, Boolean(shipResult.fieldErrors.shipCity), document.getElementById('feedbackEnvioCiudad'), shipResult.fieldErrors.shipCity || '');
-    setFieldValidationState(txtPais, Boolean(shipResult.fieldErrors.shipCountry), document.getElementById('feedbackEnvioPais'), shipResult.fieldErrors.shipCountry || '');
-
-    if (!qtyResult.valid || !shipResult.valid) {
-        const firstInvalid = [txtCantidad, txtNombre, txtDir, txtCiudad, txtPais].find((el) => el?.classList.contains('is-invalid'));
-        firstInvalid?.focus?.();
+    if (!qtyResult.valid) {
+        txtCantidad?.focus?.();
         return;
     }
 
     const cantidad = qtyResult.value;
     const nuevoStock = prod.unitsInStock - cantidad;
-    const btnComprar = document.getElementById('btnConfirmarCompra');
+    const btnAgregar = document.getElementById('btnAgregarCarrito');
     showCompraAlert('', false);
-    if (btnComprar) {
-        btnComprar.disabled = true;
-        btnComprar.textContent = 'Procesando...';
+    if (btnAgregar) {
+        btnAgregar.disabled = true;
+        btnAgregar.textContent = 'Agregando...';
     }
 
     try {
-        const createdOrder = await orderModel.create({
-            items: [{ productId: prod.productId, quantity: cantidad }],
-            ...shipResult.values
-        });
+        const updatedCart = await cartModel.addItem(prod.productId, cantidad);
 
         prod.unitsInStock = nuevoStock;
         aplicarFiltrosActivos();
+        updateCartBadge(updatedCart.totalQuantity);
 
         document.getElementById('detCatalogoStock').textContent = String(nuevoStock);
         if (nuevoStock <= 0) {
@@ -337,14 +324,12 @@ async function procesarCompraCatalogo(event) {
             estadoEl.className = 'badge bg-danger-subtle text-danger border border-danger-subtle';
         }
 
-        const totalPagado = formatCurrency(createdOrder?.total > 0 ? createdOrder.total : cantidad * prod.unitPrice);
-        const { shipName, shipAddress, shipCity, shipCountry } = shipResult.values;
+        const subtotalAgregado = formatCurrency(Math.round((cantidad * prod.unitPrice + Number.EPSILON) * 100) / 100);
         const summary = {
-            resCompraOrdenId: createdOrder?.orderId ? `#${createdOrder.orderId}` : '-',
             resCompraProducto: `${prod.productName} (#${prod.productId})`,
             resCompraCantidad: cantidad,
-            resCompraTotal: totalPagado,
-            resCompraDestino: `${shipName} — ${shipAddress}, ${shipCity}, ${shipCountry}`,
+            resCompraTotal: subtotalAgregado,
+            resCompraTotalCarrito: updatedCart.totalQuantity,
             resCompraStockRestante: nuevoStock
         };
         for (const [id, val] of Object.entries(summary)) {
@@ -356,11 +341,15 @@ async function procesarCompraCatalogo(event) {
         setElementVisibility(document.getElementById('resumenCompraCatalogo'), true);
         setElementVisibility(document.getElementById('footerSoloLecturaCatalogo'), true);
     } catch (err) {
-        showCompraAlert(extractProblemMessage(err, 'No se pudo completar la compra. Intenta nuevamente.'), true);
+        const status = Number(err?.status || err?.problemDetails?.status) || 0;
+        showCompraAlert(extractProblemMessage(err, 'No se pudo agregar el producto al carrito. Intenta nuevamente.'), true);
+        if (status === 409) {
+            await cargarCatalogo();
+        }
     } finally {
-        if (btnComprar) {
-            btnComprar.disabled = false;
-            btnComprar.textContent = 'Comprar';
+        if (btnAgregar) {
+            btnAgregar.disabled = false;
+            btnAgregar.textContent = 'Agregar al Carrito';
         }
     }
 }
@@ -392,18 +381,10 @@ function configurarModalCatalogo() {
         txtCantidad.addEventListener('change', actualizarTotalCompra);
     }
 
-    ['txtEnvioNombre', 'txtEnvioDireccion', 'txtEnvioCiudad', 'txtEnvioPais'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el && !el._compraClearBound) {
-            el._compraClearBound = true;
-            el.addEventListener('input', () => setFieldValidationState(el, false));
-        }
-    });
-
     const formCompra = document.getElementById('formCompraCatalogo');
     if (formCompra && !formCompra._compraBound) {
         formCompra._compraBound = true;
-        formCompra.addEventListener('submit', procesarCompraCatalogo);
+        formCompra.addEventListener('submit', procesarAgregarAlCarrito);
     }
 
     bindModalDismiss(document.getElementById('modalDetalleCatalogo'), () => {
@@ -415,6 +396,9 @@ function configurarModalCatalogo() {
 async function initCatalogController() {
     const usuario = await initAuthenticatedView({ authModel });
     if (!usuario) return;
+
+    const canBuy = Boolean(resolveConnectedPermissions(usuario, authModel).canPurchaseCatalog);
+    setElementVisibility(document.getElementById('btnIrCarritoCatalogo'), canBuy);
 
     configurarFiltrosCatalogo();
     configurarModalCatalogo();

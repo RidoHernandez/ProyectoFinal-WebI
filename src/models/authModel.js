@@ -14,6 +14,7 @@ const DEFAULT_TOKEN_TTL_MS = 120 * 60 * 1000;
 const ALLOWED_VIEWS = new Set([
     './productos.html',
     './catalogo.html',
+    './carrito.html',
     './clientes.html',
     './pedidos.html'
 ]);
@@ -357,7 +358,7 @@ export function authGuard(requiredPermissions = null) {
         : (Array.isArray(requiredPermissions) ? requiredPermissions : []);
 
     if (permList.length > 0 && !authModel.hasPermission(permList)) {
-        const flashMessage = 'Acceso denegado (403): No tienes permisos para acceder a esa sección.';
+        const flashMessage = 'No tienes permisos para acceder a esa sección.';
 
         try {
             if (typeof sessionStorage !== 'undefined') {

@@ -1,12 +1,12 @@
 ---
 proyecto: Sistema de Gestion Comercial y Control de Acceso
 documento: Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
-version: 3.0.0
+version: 3.1.0
 estado_global: DONE
-ultima_actualizacion: 2026-11-25
+ultima_actualizacion: 2026-11-26
 formato_agente: AI-READABLE-TASKS-V1
-referencia_spec: ReqProyectoWEB.md (v3.0.0)
-backend_status: JWT_BEARER_DB_RBAC_V5
+referencia_spec: ReqProyectoWEB.md (v3.1.0)
+backend_status: JWT_BEARER_DB_RBAC_CART_V6
 ---
 
 # Plan de Trabajo y Desglose de Tareas (WBS / Tasks)
@@ -37,7 +37,8 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | **Fase 7** | Clientes unificados, gestion de estados de pedidos y cancelacion con stock | 4 | 4 | 0 | 0 | 100% |
 | **Fase 8** | Endurecimiento de seguridad: RBAC exclusivo en BD, cero exposicion en frontend | 4 | 4 | 0 | 0 | 100% |
 | **Fase 9** | Migracion completa de autenticacion y autorizacion a JWT Bearer (eliminacion total de API Key) | 2 | 2 | 0 | 0 | 100% |
-| **TOTAL** | **Consolidado del Proyecto** | **41** | **41** | **0** | **0** | **100%** |
+| **Fase 10** | Modulo de carrito de compras persistente, cancelacion completa y endurecimiento de errores/logs | 4 | 4 | 0 | 0 | 100% |
+| **TOTAL** | **Consolidado del Proyecto** | **45** | **45** | **0** | **0** | **100%** |
 
 ---
 
@@ -52,6 +53,7 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | **REQ-CORE-002** | Directorio y Consulta de Clientes (Solo Lectura) | `TASK-F4-01`, `TASK-F4-02` |
 | **REQ-CORE-003** | Compra de Productos y Historial Propio de Pedidos del Cliente | `TASK-F6-01`, `TASK-F6-02`, `TASK-F6-03`, `TASK-F6-04`, `TASK-F6-05` |
 | **REQ-CORE-004** | Directorio Unificado de Clientes y Gestion de Estados / Cancelacion de Pedidos | `TASK-F7-01`, `TASK-F7-02`, `TASK-F7-03`, `TASK-F7-04` |
+| **REQ-CORE-005** | Modulo de Carrito de Compras Persistente y Cancelacion Completa | `TASK-F10-01`, `TASK-F10-03`, `TASK-F10-04` |
 | **REQ-BIZ-001** | Politica de Descontinuacion vs Eliminacion Fisica (409 Conflict) | `TASK-F1-03`, `TASK-F3-01`, `TASK-F3-03`, `TASK-F3-05` |
 | **REQ-BIZ-002** | Prevencion de Registros Duplicados | `TASK-F2-05`, `TASK-F3-04` |
 | **REQ-BIZ-003** | Validacion de Datos en Servidor y Rangos Permitidos | `TASK-F3-02`, `TASK-F3-04` |
@@ -61,6 +63,7 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | **REQ-SEC-004** | Proteccion contra Clickjacking (Frame-Busting / CSP) | `TASK-F5-03` |
 | **REQ-SEC-005** | Sanitizacion de Entradas, Prevencion XSS y Almacenamiento Seguro | `TASK-F1-02`, `TASK-F2-02`, `TASK-F5-02`, `TASK-F5-04` |
 | **REQ-SEC-006** | Proteccion contra Fuerza Bruta (Bloqueo de 15 min en Frontend) | `TASK-F5-01` |
+| **REQ-SEC-007** | Cero Exposicion de Logs, Avisos y Errores Internos del Backend | `TASK-F10-02`, `TASK-F10-04` |
 
 ---
 
@@ -586,6 +589,54 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 
 ---
 
+### FASE 10: Modulo de Carrito de Compras Persistente y Endurecimiento de Errores/Logs
+
+#### [TASK-F10-01] Backend: Entidad `CartItem`, Migracion `AddCartItems` y `CartController`
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `APIkey/Models/CartItem.cs`, `APIkey/DTOs/CartDtos.cs`, `APIkey/Data/ContextDB.cs`, `APIkey/Controllers/CartController.cs`, `APIkey/Migrations/*_AddCartItems.cs`
+* **Requisitos:** `REQ-CORE-005`
+* **Descripcion:** Persistir el carrito por usuario en MySQL con reserva atomica de stock al agregar, conversion a `Order` + `OrderDetails` al comprar en `/api/cart/checkout` y cancelacion completa exclusiva (`DELETE /api/cart`) devolviendo todos los productos al inventario.
+* **Criterios de Aceptacion:**
+  * - [x] Tabla `cart_items` con clave primaria compuesta `(UserID, ProductID)` y FKs `Restrict` a `users` y `products`.
+  * - [x] `CartController` exclusivo `CLIENTE` (`GET /api/cart`, `POST /api/cart/items`, `POST /api/cart/checkout`, `DELETE /api/cart`) con bloqueos `FOR UPDATE` en orden aciclico.
+  * - [x] Cancelacion estrictamente completa sin endpoints de eliminacion parcial.
+
+#### [TASK-F10-02] Seguridad Backend y Frontend: Cero Exposicion en Logs, Avisos y Errores
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `APIkey/Program.cs`, `APIkey/appsettings.json`, `APIkey/Controllers/OrdersController.cs`, `src/models/apiClient.js`, `src/models/authModel.js`, `src/controllers/uiHelpers.js`, `src/controllers/catalogController.js`, `src/views/productos.html`
+* **Requisitos:** `REQ-SEC-007`
+* **Descripcion:** Eliminar toda salida de consola en frontend, desactivar cabecera `Server` y trazas/rutas en `ProblemDetails`, sanitizar `ModelState` y restringir niveles de log en produccion.
+* **Criterios de Aceptacion:**
+  * - [x] Cero llamadas `console.*` en `src/`.
+  * - [x] `ProblemDetails` y validaciones de modelo en backend sin `instance`, `traceId`, `exception` ni tipos `.NET`.
+  * - [x] `SENSITIVE_ERROR_PATTERN` reforzado contra URLs, dominios de despliegue y motores de BD.
+
+#### [TASK-F10-03] Frontend: Modelo de Carrito, Seleccion en Catalogo y Pantalla Dedicada `carrito.html`
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `src/models/cartModel.js`, `src/models/apiClient.js`, `src/models/authModel.js`, `src/controllers/uiHelpers.js`, `src/views/catalogo.html`, `src/controllers/catalogController.js`, `src/views/carrito.html`, `src/controllers/cartController.js`, `src/views/pedidos.html`, `src/views/productos.html`, `src/views/clientes.html`
+* **Requisitos:** `REQ-CORE-005`
+* **Descripcion:** Adaptar `catalogo.html` para agregar productos al carrito persistente e implementar la vista dedicada `carrito.html` con compra completa, comprobante de orden y cancelacion completa del carrito.
+* **Criterios de Aceptacion:**
+  * - [x] `catalogController.js` agrega productos al carrito via `cartModel.addItem` (cero `innerHTML`), actualiza stock local y contador en navbar.
+  * - [x] `carrito.html` y `cartController.js` protegidos por `authGuard('canPurchaseCatalog')`, renderizando tabla accesible con `createElement`/`textContent`, checkout con formulario de envio y cancelacion completa via `cartModel.cancel`.
+  * - [x] Enlace `Carrito` con contador visible exclusivamente para cuentas con permiso `canPurchaseCatalog`.
+
+#### [TASK-F10-04] Verificacion Integral, Actualizacion de SPECS y Publicacion en Ambos Repositorios
+* **Estado:** `[DONE]`
+* **Prioridad:** Critica
+* **Archivos Afectados:** `SPECS/ReqProyectoWEB.md`, `SPECS/TASKS.md`, `src/README.md`
+* **Requisitos:** `REQ-CORE-005`, `REQ-SEC-007`
+* **Descripcion:** Validar compilacion del backend, pruebas automatizadas de modelos/seguridad/flujo de carrito y publicar commits cortos en ambos repositorios.
+* **Criterios de Aceptacion:**
+  * - [x] `dotnet build` exitoso sin errores.
+  * - [x] Verificacion automatizada de `cartModel`, `apiClient` y ausencia de `console.*` / `innerHTML` inseguros.
+  * - [x] `SPECS/` actualizadas y push limpio en `APIJWT_ProyectoWEB_II` y `ProyectoFinal-WebI`.
+
+---
+
 ## 5. Historial de Modificaciones del Plan de Tareas
 
 | Fecha | Agente / Autor | Version | Accion Realizada |
@@ -599,3 +650,4 @@ Al interactuar con este archivo o ejecutar tareas, respeta las siguientes normas
 | 2026-11-24 | Antigravity | 1.7.0 | Completada y verificada al 100% la Fase 7 (`TASK-F7-01` a `TASK-F7-04`, 35/35 tareas): directorio unificado de clientes en `CustomersController.cs` (Northwind + usuarios `CLIENTE` con clave dinamica determinista), migracion EF Core `AddOrderStatus` (`orders.Status`) y endpoint `PATCH /api/orders/{id}/status` en `OrdersController.cs` con reintegro atomico de stock y estado `CANCELADO` irreversible, controles RBAC y confirmaciones en `orderModel.js`, `orderService.js`, `ordersController.js`, `pedidos.html` y `ordenes.html`, `dotnet build` limpio y 38/38 pruebas pasando (`tests/fase1.test.mjs` a `tests/fase7.test.mjs`). |
 | 2026-11-25 | Antigravity | 2.0.0 | Completada y verificada al 100% la Fase 8 (`TASK-F8-01` a `TASK-F8-04`, 39/39 tareas): tabla `roles` y FK `users.RoleId` con migracion `AddRolesAndSeedUsers` sembrando `admin`, `Robe` y `Leo` (PBKDF2-SHA256); eliminacion de `ResolveUserRole`, whitelists y `POST /api/apikeys/regenerate` en backend; autorizacion estricta en BD (`[ApiKey]` + `[RequireRoles]`) y `GET /api/auth/me` con banderas de UI; cero exposicion de roles, sin campo de URL editable, sin regeneracion de API Key y sin rutas `/api/...` visibles en frontend. |
 | 2026-11-25 | Antigravity | 3.0.0 | Completada la Fase 9 (`TASK-F9-01` a `TASK-F9-02`, 41/41 tareas): migracion total del frontend a autenticacion JWT Bearer (`Authorization: Bearer <token>`, `northwind_jwt_token` en `sessionStorage`, validacion de `exp` JWT, eliminacion total de `X-API-KEY`/`apiKey`), fix de `DOMContentLoaded` en `productsController.js`, y actualizacion integral de `tests/*.test.mjs` y `SPECS/`. |
+| 2026-11-26 | Antigravity | 3.1.0 | Completada la Fase 10 (`TASK-F10-01` a `TASK-F10-04`, 45/45 tareas): modulo completo de carrito de compras persistente en MySQL (`CartItem`, migracion `AddCartItems`, `CartController` con reserva atomica, compra en `/api/cart/checkout` y cancelacion completa exclusiva en `DELETE /api/cart`), `cartModel.js`, `carrito.html`, `cartController.js`, actualizacion de `catalogo.html`/`catalogController.js` y navbar, y endurecimiento de seguridad eliminando logs de consola y exposicion de errores/cabeceras internas. |
