@@ -183,7 +183,9 @@ async function cargarCarrito() {
         const cart = await cartModel.get();
         renderCartState(cart);
     } catch (err) {
-        renderCartState({ items: [], totalQuantity: 0, total: 0 });
+        setElementVisibility(document.getElementById('contenidoCarrito'), false);
+        setElementVisibility(document.getElementById('carritoVacio'), false);
+        setElementVisibility(document.getElementById('resumenPedidoCarrito'), false);
         showAlert('alertCarritoError', extractProblemMessage(err, 'No se pudo cargar tu carrito. Intenta nuevamente.'), true);
     }
 }
@@ -239,7 +241,17 @@ async function manejarCheckout(event) {
         document.getElementById('formCheckoutCarrito')?.reset();
         resetCheckoutValidation();
     } catch (err) {
-        showAlert('alertCarritoError', extractProblemMessage(err, 'No se pudo completar la compra. Intenta nuevamente.'), true);
+        const status = Number(err?.status || err?.problemDetails?.status) || 0;
+        const message = extractProblemMessage(err, 'No se pudo completar la compra. Intenta nuevamente.');
+        if (status === 400 || status === 404 || status === 409) {
+            try {
+                const refreshedCart = await cartModel.get();
+                renderCartState(refreshedCart);
+            } catch {
+                // Conservar el estado visible si falla la recarga auxiliar
+            }
+        }
+        showAlert('alertCarritoError', message, true);
     } finally {
         isSubmitting = false;
         if (btnConfirmar) {

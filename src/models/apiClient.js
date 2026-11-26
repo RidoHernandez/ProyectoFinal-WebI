@@ -53,7 +53,7 @@ const STATUS_ERROR_MESSAGES = Object.freeze({
     500: 'Ocurrió un error al procesar la solicitud. Intenta nuevamente más tarde.'
 });
 
-const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|EntityFramework|Pomelo|MySql|MariaDB|SqlException|SQLSTATE|InnerException|DbUpdateException|Kestrel|Text\.Json|Newtonsoft|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|azurewebsites\.net|https?:\/\/[^\s]+)/i;
+const SENSITIVE_ERROR_PATTERN = /(System\.|Exception|StackTrace|Microsoft\.AspNetCore|EntityFramework|Pomelo|MySql|MariaDB|SqlException|SQLSTATE|InnerException|DbUpdateException|Kestrel|Text\.Json|Newtonsoft|Table\s+'[^']+'|Column\s+'[^']+'|SELECT\s+.+\s+FROM|ForeignKey|\sat\s+[A-Za-z0-9_.<>`]+\(|[A-Z]:\\[^\s]+|\/api\/[a-z0-9_/-]+|azurewebsites\.net|https?:\/\/[^\s]+|<!DOCTYPE|<html\b|The dto field|The input was not valid|A non-empty request body|Could not convert|byte position)/i;
 
 const GENERIC_HTTP_REASONS = new Set([
     'bad request',
@@ -179,21 +179,34 @@ export function normalizeProblemDetails(payload, status = 500) {
     const title = sanitizeMessage(rawTitle, defaultMsg);
     const detail = sanitizeMessage(rawDetail, title);
 
-    let message = detail !== title ? detail : title;
-    if (rawErrors && typeof rawErrors === 'object') {
-        const firstFieldErrors = Object.values(rawErrors).flat().filter(Boolean);
-        if (firstFieldErrors.length > 0 && typeof firstFieldErrors[0] === 'string') {
-            message = sanitizeMessage(firstFieldErrors[0], message);
+    let safeErrors = null;
+    let firstSafeFieldError = '';
+    if (rawErrors && typeof rawErrors === 'object' && !Array.isArray(rawErrors)) {
+        const cleaned = {};
+        for (const [key, value] of Object.entries(rawErrors)) {
+            if (!key || key.startsWith('$') || key.toLowerCase() === 'dto') continue;
+            const list = (Array.isArray(value) ? value : [value])
+                .map((item) => pickSafeNonGenericMessage(String(item ?? '')))
+                .filter(Boolean);
+            if (list.length > 0) {
+                cleaned[key] = list;
+                if (!firstSafeFieldError) firstSafeFieldError = list[0];
+            }
+        }
+        if (Object.keys(cleaned).length > 0) {
+            safeErrors = cleaned;
         }
     }
+
+    const message = firstSafeFieldError || (detail !== title ? detail : title);
 
     return {
         status: numericStatus,
         title,
         detail,
         instance: null,
-        type: (typeof payload === 'object' && payload !== null ? payload.type : null) || null,
-        errors: rawErrors,
+        type: null,
+        errors: safeErrors,
         message
     };
 }
@@ -205,9 +218,12 @@ async function parseProblemDetails(response) {
         const text = typeof cloned.text === 'function' ? await cloned.text() : '';
         if (text) {
             try {
-                payload = JSON.parse(text);
+                const parsed = JSON.parse(text);
+                if (parsed && typeof parsed === 'object') {
+                    payload = parsed;
+                }
             } catch {
-                payload = { detail: text };
+                payload = null;
             }
         }
     } catch {

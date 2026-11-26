@@ -136,7 +136,10 @@ export function setElementVisibility(el, visible) {
     }
 }
 
+let cartBadgeVersion = 0;
+
 export function updateCartBadge(count = 0) {
+    cartBadgeVersion += 1;
     if (typeof document === 'undefined') return;
     const numeric = Math.max(0, Number(count) || 0);
     for (const id of ['badgeCarritoNav', 'badgeCarritoCatalogo']) {
@@ -425,7 +428,14 @@ export async function initAuthenticatedView({ authModel, requiredPermission = nu
 
     const canBuy = Boolean(resolveConnectedPermissions(usuario, authModel).canPurchaseCatalog);
     if (!skipCartBadgeSync && canBuy && (document.getElementById('badgeCarritoNav') || document.getElementById('badgeCarritoCatalogo'))) {
-        cartModel.get().then((cart) => updateCartBadge(cart.totalQuantity)).catch(() => {});
+        const versionBefore = cartBadgeVersion;
+        cartModel.get()
+            .then((cart) => {
+                if (cartBadgeVersion === versionBefore) {
+                    updateCartBadge(cart.totalQuantity);
+                }
+            })
+            .catch(() => {});
     }
 
     return usuario;

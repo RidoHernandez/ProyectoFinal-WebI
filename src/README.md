@@ -37,7 +37,7 @@ Arquitectura MVC pura en 3 carpetas basada en Vanilla JS (ES Modules nativos, HT
 2. **Dependencias unidireccionales:**
    `models/apiClient.js` -> `models/*Model.js` -> `controllers/uiHelpers.js` -> `controllers/*Controller.js` -> `views/*.html`
    - `models/` nunca importa desde `controllers/`.
-   - Los 5 controladores de página no exportan símbolos; se auto-inicializan al cargar la vista correspondiente.
+   - Los 6 controladores de página no exportan símbolos; se auto-inicializan al cargar la vista correspondiente.
 3. **Separación de responsabilidades:**
    - `models`: Encapsula el cliente HTTP (`apiClient.js`), los modelos de dominio, validaciones de carga útil, sesión JWT y guardia de acceso.
    - `views`: Estructura HTML semántica sin lógica de negocio, sin exposición de rutas de backend ni nombres de roles, y con protección anti-clickjacking contra embebido en `<iframe>`.

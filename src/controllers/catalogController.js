@@ -15,6 +15,7 @@ import {
 authGuard();
 
 let productos = [];
+let isAddingToCart = false;
 
 function parsePriceBound(value) {
     if (value === null || value === undefined || String(value).trim() === '') return null;
@@ -277,8 +278,58 @@ function abrirModalProductoCatalogo(productId) {
     showModal(modalEl);
 }
 
+function syncModalProductState(prod) {
+    const stockEl = document.getElementById('detCatalogoStock');
+    const estadoEl = document.getElementById('detCatalogoEstado');
+    const txtCantidad = document.getElementById('txtCantidadCompra');
+    const btnAgregar = document.getElementById('btnAgregarCarrito');
+
+    if (!prod) {
+        if (stockEl) stockEl.textContent = '0';
+        if (estadoEl) {
+            estadoEl.textContent = 'No disponible';
+            estadoEl.className = 'badge bg-danger-subtle text-danger border border-danger-subtle';
+        }
+        if (txtCantidad) {
+            txtCantidad.value = '0';
+            txtCantidad.disabled = true;
+        }
+        if (btnAgregar) btnAgregar.disabled = true;
+        return;
+    }
+
+    if (stockEl) stockEl.textContent = String(prod.unitsInStock);
+    if (estadoEl) {
+        if (prod.discontinued) {
+            estadoEl.textContent = 'Descontinuado';
+            estadoEl.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle';
+        } else if (prod.unitsInStock > 0) {
+            estadoEl.textContent = 'Disponible';
+            estadoEl.className = 'badge bg-success-subtle text-success border border-success-subtle';
+        } else {
+            estadoEl.textContent = 'Agotado';
+            estadoEl.className = 'badge bg-danger-subtle text-danger border border-danger-subtle';
+        }
+    }
+
+    const puedeAgregar = prod.unitsInStock > 0 && !prod.discontinued;
+    if (txtCantidad) {
+        txtCantidad.max = String(Math.max(1, prod.unitsInStock));
+        const currentVal = Number(txtCantidad.value);
+        if (!puedeAgregar) {
+            txtCantidad.value = '0';
+        } else if (!Number.isInteger(currentVal) || currentVal < 1 || currentVal > prod.unitsInStock) {
+            txtCantidad.value = String(Math.min(Math.max(1, currentVal || 1), prod.unitsInStock));
+        }
+        txtCantidad.disabled = !puedeAgregar;
+    }
+    if (btnAgregar) btnAgregar.disabled = !puedeAgregar;
+    actualizarTotalCompra();
+}
+
 async function procesarAgregarAlCarrito(event) {
     event?.preventDefault?.();
+    if (isAddingToCart) return;
 
     const usuario = authModel.getCurrentUser();
     if (!resolveConnectedPermissions(usuario, authModel).canPurchaseCatalog) {
@@ -286,9 +337,11 @@ async function procesarAgregarAlCarrito(event) {
         return;
     }
 
-    const prod = findProducto(document.getElementById('compraProductoId')?.value);
+    const productId = document.getElementById('compraProductoId')?.value;
+    const prod = findProducto(productId);
     if (!prod || prod.discontinued || prod.unitsInStock <= 0) {
         showCompraAlert('Este producto ya no está disponible.', true, 'warning');
+        syncModalProductState(prod);
         return;
     }
 
@@ -302,9 +355,10 @@ async function procesarAgregarAlCarrito(event) {
     }
 
     const cantidad = qtyResult.value;
-    const nuevoStock = prod.unitsInStock - cantidad;
+    const fallbackStock = Math.max(0, prod.unitsInStock - cantidad);
     const btnAgregar = document.getElementById('btnAgregarCarrito');
     showCompraAlert('', false);
+    isAddingToCart = true;
     if (btnAgregar) {
         btnAgregar.disabled = true;
         btnAgregar.textContent = 'Agregando...';
@@ -312,17 +366,16 @@ async function procesarAgregarAlCarrito(event) {
 
     try {
         const updatedCart = await cartModel.addItem(prod.productId, cantidad);
-
-        prod.unitsInStock = nuevoStock;
-        aplicarFiltrosActivos();
         updateCartBadge(updatedCart.totalQuantity);
 
-        document.getElementById('detCatalogoStock').textContent = String(nuevoStock);
-        if (nuevoStock <= 0) {
-            const estadoEl = document.getElementById('detCatalogoEstado');
-            estadoEl.textContent = 'Agotado';
-            estadoEl.className = 'badge bg-danger-subtle text-danger border border-danger-subtle';
+        await cargarCatalogo();
+        const refreshed = findProducto(prod.productId);
+        const nuevoStock = refreshed ? refreshed.unitsInStock : fallbackStock;
+        if (!refreshed) {
+            prod.unitsInStock = fallbackStock;
+            aplicarFiltrosActivos();
         }
+        syncModalProductState(refreshed || prod);
 
         const subtotalAgregado = formatCurrency(Math.round((cantidad * prod.unitPrice + Number.EPSILON) * 100) / 100);
         const summary = {
@@ -342,14 +395,18 @@ async function procesarAgregarAlCarrito(event) {
         setElementVisibility(document.getElementById('footerSoloLecturaCatalogo'), true);
     } catch (err) {
         const status = Number(err?.status || err?.problemDetails?.status) || 0;
-        showCompraAlert(extractProblemMessage(err, 'No se pudo agregar el producto al carrito. Intenta nuevamente.'), true);
-        if (status === 409) {
+        const message = extractProblemMessage(err, 'No se pudo agregar el producto al carrito. Intenta nuevamente.');
+        if (status === 400 || status === 404 || status === 409) {
             await cargarCatalogo();
+            syncModalProductState(findProducto(prod.productId));
         }
+        showCompraAlert(message, true);
     } finally {
+        isAddingToCart = false;
         if (btnAgregar) {
-            btnAgregar.disabled = false;
             btnAgregar.textContent = 'Agregar al Carrito';
+            const latest = findProducto(productId);
+            btnAgregar.disabled = !latest || latest.discontinued || latest.unitsInStock <= 0;
         }
     }
 }

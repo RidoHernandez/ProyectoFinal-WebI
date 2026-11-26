@@ -66,9 +66,9 @@ El backend ASP.NET Core (`APIkey`, .NET 10 / MySQL en `APIKey_ProyectoWEB_II`, e
 * Protegido integralmente por `[Authorize(Roles = "CLIENTE")]` validado en BD (`ADMIN` y `EMPLEADO` reciben `403 Forbidden`).
 * Persiste los productos del carrito en MySQL (`cart_items`, migracion EF Core `AddCartItems`, clave primaria compuesta `(UserID, ProductID)` con FKs `Restrict` hacia `users` y `products`).
 * `GET /api/cart`: Retorna el carrito persistente del usuario autenticado (`TotalQuantity`, `Total`, `Items`).
-* `POST /api/cart/items`: Transaccional con bloqueo `FOR UPDATE` en orden aciclico (`cart_items` -> `products`). Valida producto activo (`!Discontinued`) y stock disponible, descuenta/reserva `UnitsInStock` en `products` y guarda/incrementa la cantidad en `cart_items`.
-* `POST /api/cart/checkout`: Transaccional con bloqueo `FOR UPDATE` sobre `cart_items`. Convierte todos los productos guardados en el carrito en una orden (`Order` + `OrderDetails`, estado `PENDIENTE`, precios leidos en servidor) sin volver a descontar stock y vacia el carrito del usuario, retornando `201 Created` (`OrderDto`).
-* `DELETE /api/cart`: **Cancelacion completa exclusiva del carrito** (no existe eliminacion parcial de articulos individuales). Bloquea `cart_items` ordenados por `ProductID`, reintegra atomica y completamente todas las unidades a `products.UnitsInStock` (`LEAST(32767, COALESCE(UnitsInStock, 0) + qty)`) y vacia el carrito.
+* `POST /api/cart/items`: Transaccional con bloqueo `FOR UPDATE` en orden aciclico (`users` -> `cart_items` -> `products`). Valida producto activo (`!Discontinued`) y stock disponible, descuenta/reserva `UnitsInStock` en `products` y guarda/incrementa la cantidad en `cart_items`.
+* `POST /api/cart/checkout`: Transaccional con bloqueo `FOR UPDATE` (`users` -> `cart_items`). Valida longitudes recortadas de envio, convierte todos los productos guardados en el carrito en una orden (`Order` + `OrderDetails`, estado `PENDIENTE`, precios leidos en servidor) sin volver a descontar stock y vacia el carrito del usuario, retornando `201 Created` (`OrderDto`).
+* `DELETE /api/cart`: **Cancelacion completa exclusiva del carrito** (no existe eliminacion parcial de articulos individuales). Bloquea `users` y `cart_items` ordenados por `ProductID`, reintegra atomica y completamente todas las unidades a `products.UnitsInStock` (`LEAST(32767, COALESCE(UnitsInStock, 0) + qty)`) y vacia el carrito.
 
 ### 3.7. Controladores Inexistentes en Backend
 * **Categorias y Proveedores:** NO existen `CategoriesController` ni `SuppliersController` en el backend. Las vistas que los requieran deben operar mediante cache local, catalogos estaticos de referencia o fallback silencioso ya previsto en `categoryService.js` y `supplierService.js`.
@@ -92,7 +92,7 @@ El control de acceso basado en roles reside exclusivamente en el servidor y en l
 
 3. **Cliente (`roles.Id = 3`, `CLIENTE`, default en registro)**:
    * **Origen:** Registro publico mediante `POST /api/auth/register` (`RoleId = 3` forzado en servidor).
-   * **Permisos en backend:** Lectura de catalogo (`GET /api/Products`), compras (`POST /api/orders`), consulta de sus propias ordenes (`GET /api/orders/mine`, `GET /api/orders/{id}` propio) y cancelacion de sus pedidos propios activos (`PATCH /api/orders/{id}/status` -> `CANCELADO`).
+   * **Permisos en backend:** Lectura de catalogo (`GET /api/Products`), gestion de carrito persistente (`GET /api/cart`, `POST /api/cart/items`, `POST /api/cart/checkout`, `DELETE /api/cart`), compras (`POST /api/orders`), consulta de sus propias ordenes (`GET /api/orders/mine`, `GET /api/orders/{id}` propio) y cancelacion de sus pedidos propios activos (`PATCH /api/orders/{id}/status` -> `CANCELADO`).
 
 ### 4.2. Matriz de Permisos Validada en Backend
 
@@ -126,13 +126,13 @@ El control de acceso basado en roles reside exclusivamente en el servidor y en l
 El frontend aplica el principio de minima exposicion y cero confianza en el cliente:
 
 ### 5.1. Almacenamiento Seguro de Sesion (`sessionStorage`) y URL Fija
-* **URL fija del backend:** `https://localhost:7039/api` fija en `src/api/config.js`; sin campo editable en `login.html` ni lectura de `localStorage`.
-* **Solo `sessionStorage` para sesion JWT:** La sesion (`auth_session`) almacena unicamente `{ userId, username, token, tokenType, expiresAt, authenticatedAt, defaultView, permissions, signature }` (y `northwind_jwt_token` sincronizado) **sin ningun campo `role` ni nombre de rol**.
-* **Inyeccion `Authorization: Bearer <token>`:** `httpClient.js` adjunta exclusivamente la cabecera `Authorization: Bearer <token>` en peticiones privadas (sin `X-API-KEY`).
+* **URL fija del backend:** Definida como constante fija en `src/models/apiClient.js`; sin campo editable en `login.html` ni lectura de `localStorage`.
+* **Solo `sessionStorage` para sesion JWT:** La sesion (`auth_session`) almacena unicamente `{ userId, username, token, tokenType, expiresAt, defaultView, permissions }` (y `northwind_jwt_token` sincronizado) **sin ningun campo `role` ni nombre de rol**.
+* **Inyeccion `Authorization: Bearer <token>`:** `apiClient.js` adjunta exclusivamente la cabecera `Authorization: Bearer <token>` en peticiones privadas (sin `X-API-KEY`) y descarta cuerpos no-JSON en respuestas de error para evitar fugas de HTML/servidor.
 * **Cero rutas de API visibles:** Ninguna vista HTML ni texto de interfaz revela rutas `/api/...` ni detalles internos del servidor.
 
-### 5.2. Guardias de Navegacion por Capacidades (`authGuard.js`)
-* Cada pagina privada valida autenticacion y la capacidad de UI correspondiente (`authGuard('canViewProductsAdmin')`, `authGuard('canViewCustomers')`, `authGuard()`), sincronizando en cada carga las capacidades reales desde `GET /api/auth/me`.
+### 5.2. Guardias de Navegacion por Capacidades (`authModel.js`)
+* Cada pagina privada valida autenticacion y la capacidad de UI correspondiente (`authGuard('canViewProductsAdmin')`, `authGuard('canViewCustomers')`, `authGuard('canPurchaseCatalog')`, `authGuard()`), sincronizando en cada carga las capacidades reales desde `GET /api/auth/me`.
 
 ### 5.3. Sanitizacion de Entradas y Prevencion de XSS
 * **Prohibicion de `innerHTML` con datos sin sanitizar:** Toda renderizacion de datos provenientes del backend (nombres de productos, descripciones, clientes, ordenes) debe ejecutarse mediante `textContent`, `document.createElement`, o a traves de una funcion utilitaria de escape HTML (`escapeHtml(str)`).
@@ -339,8 +339,8 @@ El frontend aplica el principio de minima exposicion y cero confianza en el clie
 * **Prioridad:** Critica
 * **Descripcion:** Garantizar que ni el backend ni el frontend expongan informacion interna que comprometa la infraestructura o el servidor a traves de logs de consola, avisos visuales, cabeceras de servidor ni cuerpos de error.
 * **Criterios de Aceptacion:**
-  * - [x] **[Backend]** `Program.cs` desactiva cabecera `Server` de Kestrel, agrega `X-Content-Type-Options: nosniff` y `Referrer-Policy: no-referrer`, omite `instance`/`traceId`/`exception` en `ProblemDetails`, sanitiza errores de `ModelState` y reemplaza mensajes tecnicos de autenticacion/500 por respuestas genericas seguras; `appsettings.json` restringe niveles de log a `Warning`/`Error`.
-  * - [x] **[Frontend]** Eliminacion total de llamadas `console.*` en `src/`, fortalecimiento de `SENSITIVE_ERROR_PATTERN` (filtrando dominios, URLs, motores de BD y excepciones de framework) y mensajes genericos seguros en `apiClient.js`, `uiHelpers.js` y vistas HTML.
+  * - [x] **[Backend]** `Program.cs` desactiva cabecera `Server` de Kestrel, agrega `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` y `Cache-Control: no-store`, omite `type`/`instance`/`traceId`/`exception` en `ProblemDetails`, limpia extensiones en `5xx`, localiza respuestas `404`/`405`/`415`, filtra claves internas de `ModelState` (`dto`, `$`) y mensajes en ingles del framework, y restringe niveles de log a `Warning`/`Error` en `appsettings.json`.
+  * - [x] **[Frontend]** Eliminacion total de llamadas `console.*` en `src/`, descarte de respuestas no-JSON en `parseProblemDetails`, saneamiento de `ProblemDetails.errors`, fortalecimiento de `SENSITIVE_ERROR_PATTERN` (filtrando dominios, URLs, motores de BD, HTML y excepciones de framework) y mensajes genericos seguros en `apiClient.js`, `uiHelpers.js` y vistas HTML.
 
 ---
 
