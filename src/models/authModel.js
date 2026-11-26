@@ -219,7 +219,7 @@ export const authModel = {
         }
     },
 
-    async login(username, password) {
+    async login(username, password, altcha) {
         purgeResidualLocalStorage();
 
         if (!username || typeof username !== 'string' || !username.trim()) {
@@ -232,17 +232,21 @@ export const authModel = {
         const cleanUsername = username.trim();
         const response = await httpClient(ENDPOINTS.AUTH_LOGIN, {
             method: 'POST',
-            body: JSON.stringify({ username: cleanUsername, password }),
+            body: JSON.stringify({ username: cleanUsername, password, altcha }),
             skipAuthRedirect: true
         });
 
         if (!response.ok) {
-            throw new ApiError(response.problemDetails || {
+            const error = new ApiError(response.problemDetails || {
                 status: response.status || 401,
                 title: 'Error de autenticación',
                 detail: response.errorMessage || 'El usuario o la contraseña proporcionados son incorrectos.',
                 message: response.errorMessage || 'El usuario o la contraseña proporcionados son incorrectos.'
             });
+            if (response.status === 429) {
+                error.retryAfterSeconds = Number(response.headers.get('Retry-After'));
+            }
+            throw error;
         }
 
         const data = await response.json();
@@ -262,7 +266,7 @@ export const authModel = {
         });
     },
 
-    async register(username, email, password) {
+    async register(username, email, password, altcha) {
         purgeResidualLocalStorage();
 
         if (!username || typeof username !== 'string' || !username.trim()) {
@@ -278,7 +282,7 @@ export const authModel = {
         const cleanUsername = username.trim();
         const response = await httpClient(ENDPOINTS.AUTH_REGISTER, {
             method: 'POST',
-            body: JSON.stringify({ username: cleanUsername, email: email.trim(), password }),
+            body: JSON.stringify({ username: cleanUsername, email: email.trim(), password, altcha }),
             skipAuthRedirect: true
         });
 
@@ -380,105 +384,35 @@ export function authGuard(requiredPermissions = null) {
     return authModel.getCurrentUser();
 }
 
-// Protección contra fuerza bruta en login (3 intentos fallidos -> 15 min bloqueo + captcha matemático)
-const MAX_FAILED_ATTEMPTS = 3;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
-const STORAGE_KEYS_BF = Object.freeze({
-    ATTEMPTS: 'login_attempts',
-    LOCKOUT_UNTIL: 'lockout_until',
-    CAPTCHA_REQUIRED: 'login_captcha_required'
-});
-
-function readBfStorage(key) {
+// El navegador conserva el aviso al recargar. La API decide y aplica el bloqueo.
+export function readLoginChallenge() {
     try {
-        return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
+        const saved = JSON.parse(sessionStorage.getItem('login_altcha'));
+        if (saved && typeof saved.username === 'string' && Number.isFinite(saved.until)) return saved;
+
+        // Conservar un bloqueo iniciado por la versión anterior hasta el siguiente acceso válido.
+        if (localStorage.getItem('login_captcha_required') === 'true') {
+            return { username: '', until: Number(localStorage.getItem('lockout_until')) || 0 };
+        }
     } catch {
-        return null;
+        // El control del servidor también funciona sin almacenamiento local.
     }
+    return null;
 }
 
-function writeBfStorage(key, value) {
+export function saveLoginChallenge(challenge) {
     try {
-        if (typeof localStorage !== 'undefined') localStorage.setItem(key, String(value));
+        if (challenge) {
+            sessionStorage.setItem('login_altcha', JSON.stringify(challenge));
+        } else {
+            sessionStorage.removeItem('login_altcha');
+            localStorage.removeItem('lockout_until');
+            localStorage.removeItem('login_captcha_required');
+            localStorage.removeItem('login_attempts');
+        }
     } catch {
-        // Ignore storage errors
+        // El estado en memoria sigue disponible para este formulario.
     }
-}
-
-function removeBfStorage(key) {
-    try {
-        if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
-    } catch {
-        // Ignore storage errors
-    }
-}
-
-function parsePositiveInt(raw) {
-    const num = Number.parseInt(raw ?? '', 10);
-    return Number.isFinite(num) && num > 0 ? num : 0;
-}
-
-export function getRemainingLockoutMs(now = Date.now()) {
-    const lockoutUntil = parsePositiveInt(readBfStorage(STORAGE_KEYS_BF.LOCKOUT_UNTIL));
-    return lockoutUntil > now ? lockoutUntil - now : 0;
-}
-
-export function isLockedOut(now = Date.now()) {
-    return getRemainingLockoutMs(now) > 0;
-}
-
-export function isCaptchaRequired(now = Date.now()) {
-    return !isLockedOut(now) && readBfStorage(STORAGE_KEYS_BF.CAPTCHA_REQUIRED) === 'true';
-}
-
-export function getBruteForceState(now = Date.now()) {
-    const attempts = parsePositiveInt(readBfStorage(STORAGE_KEYS_BF.ATTEMPTS));
-    const lockoutUntilRaw = parsePositiveInt(readBfStorage(STORAGE_KEYS_BF.LOCKOUT_UNTIL));
-    const lockoutUntil = lockoutUntilRaw > 0 ? lockoutUntilRaw : null;
-    const remainingMs = lockoutUntil && lockoutUntil > now ? lockoutUntil - now : 0;
-    const locked = remainingMs > 0;
-    const captchaRequired = !locked && readBfStorage(STORAGE_KEYS_BF.CAPTCHA_REQUIRED) === 'true';
-
-    return {
-        attempts,
-        remainingAttempts: Math.max(0, MAX_FAILED_ATTEMPTS - attempts),
-        lockoutUntil,
-        remainingMs,
-        isLockedOut: locked,
-        captchaRequired
-    };
-}
-
-export function recordFailedLoginAttempt(now = Date.now()) {
-    const current = getBruteForceState(now);
-    if (current.isLockedOut) return current;
-
-    let baseAttempts = current.attempts;
-    if (current.lockoutUntil !== null && now >= current.lockoutUntil) {
-        baseAttempts = 0;
-        removeBfStorage(STORAGE_KEYS_BF.LOCKOUT_UNTIL);
-    }
-
-    const attempts = baseAttempts + 1;
-    writeBfStorage(STORAGE_KEYS_BF.ATTEMPTS, attempts);
-
-    if (attempts >= MAX_FAILED_ATTEMPTS) {
-        writeBfStorage(STORAGE_KEYS_BF.LOCKOUT_UNTIL, now + LOCKOUT_DURATION_MS);
-        writeBfStorage(STORAGE_KEYS_BF.CAPTCHA_REQUIRED, 'true');
-    }
-
-    return getBruteForceState(now);
-}
-
-export function resetBruteForceState() {
-    removeBfStorage(STORAGE_KEYS_BF.ATTEMPTS);
-    removeBfStorage(STORAGE_KEYS_BF.LOCKOUT_UNTIL);
-    removeBfStorage(STORAGE_KEYS_BF.CAPTCHA_REQUIRED);
-    return getBruteForceState();
-}
-
-export function markCaptchaSolved() {
-    removeBfStorage(STORAGE_KEYS_BF.CAPTCHA_REQUIRED);
 }
 
 export function formatCountdown(ms) {
@@ -486,16 +420,4 @@ export function formatCountdown(ms) {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
-
-export function generateCaptchaChallenge() {
-    const a = Math.floor(Math.random() * 11) + 2;
-    const b = Math.floor(Math.random() * 11) + 2;
-    return { question: `¿Cuánto es ${a} + ${b}?`, answer: a + b };
-}
-
-export function verifyCaptchaAnswer(input, expectedAnswer) {
-    const expected = Number(expectedAnswer);
-    const trimmed = String(input ?? '').trim();
-    return Number.isFinite(expected) && /^-?\d+$/.test(trimmed) && Number(trimmed) === expected;
 }

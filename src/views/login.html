@@ -96,23 +96,7 @@
                             <span id="lblLockoutCountdown" class="fw-bold">15:00</span>.
                         </div>
 
-                        <!-- Reto CAPTCHA posterior al bloqueo temporal -->
-                        <div id="captchaContainer" class="d-none mb-3 p-3 bg-body-tertiary rounded-3 border">
-                            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
-                                <label for="txtCaptchaAnswer" class="form-label small fw-semibold mb-0">
-                                    Verificación de seguridad:
-                                    <span id="lblCaptchaQuestion" class="fw-bold text-primary"></span>
-                                </label>
-                                <button type="button" id="btnRefreshCaptcha" class="btn btn-outline-secondary btn-sm">
-                                    Nuevo reto
-                                </button>
-                            </div>
-                            <input type="number" id="txtCaptchaAnswer" class="form-control form-control-sm"
-                                   placeholder="Ingresa el resultado" inputmode="numeric" autocomplete="off">
-                            <div id="errCaptcha" class="invalid-feedback">
-                                Respuesta de verificación incorrecta. Intenta nuevamente.
-                            </div>
-                        </div>
+                        <altcha-widget id="loginCaptcha" language="es-419" class="d-none mb-3"></altcha-widget>
 
                         <button type="submit" id="btnLogin" class="btn btn-primary py-2 px-3 fw-semibold shadow-sm w-100">
                             Iniciar Sesión
@@ -162,6 +146,8 @@
                             </div>
                         </div>
 
+                        <altcha-widget id="registerCaptcha" language="es-419" class="d-block mb-3"></altcha-widget>
+
                         <button type="submit" id="btnRegister" class="btn btn-success py-2 px-3 fw-semibold shadow-sm w-100">
                             Crear Cuenta
                         </button>
@@ -173,6 +159,8 @@
 
     <!-- Bootstrap 5 JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="../vendor/altcha-3.7.0/altcha.min.js"></script>
+    <script type="module" src="../vendor/altcha-3.7.0/es-419.js"></script>
     <!-- Controlador exclusivo de Login y Registro -->
     <script type="module" src="../controllers/loginController.js"></script>
 </body>

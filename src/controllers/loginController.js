@@ -1,16 +1,5 @@
-import {
-    authModel,
-    getBruteForceState,
-    recordFailedLoginAttempt,
-    resetBruteForceState,
-    isLockedOut,
-    getRemainingLockoutMs,
-    formatCountdown,
-    isCaptchaRequired,
-    markCaptchaSolved,
-    generateCaptchaChallenge,
-    verifyCaptchaAnswer
-} from "../models/authModel.js";
+import { authModel, formatCountdown, readLoginChallenge, saveLoginChallenge } from "../models/authModel.js";
+import { buildApiUrl } from "../models/apiClient.js";
 import { extractProblemMessage } from "./uiHelpers.js";
 
 let activeLockoutInterval = null;
@@ -182,11 +171,11 @@ async function initLoginController() {
     const btnLogin = document.getElementById('btnLogin');
     const lockoutBanner = document.getElementById('lockoutBanner');
     const lblLockoutCountdown = document.getElementById('lblLockoutCountdown');
-    const captchaContainer = document.getElementById('captchaContainer');
-    const lblCaptchaQuestion = document.getElementById('lblCaptchaQuestion');
-    const txtCaptchaAnswer = document.getElementById('txtCaptchaAnswer');
-    const btnRefreshCaptcha = document.getElementById('btnRefreshCaptcha');
-    const errCaptcha = document.getElementById('errCaptcha');
+    const loginCaptcha = document.getElementById('loginCaptcha');
+    const registerCaptcha = document.getElementById('registerCaptcha');
+    const challengeUrl = buildApiUrl('/auth/altcha/challenge');
+    loginCaptcha.setAttribute('challenge', challengeUrl);
+    registerCaptcha.setAttribute('challenge', challengeUrl);
 
     const formRegister = document.getElementById('formRegister');
     const txtRegUsername = document.getElementById('txtRegUsername');
@@ -308,111 +297,38 @@ async function initLoginController() {
         }
     });
 
-    // 6.5 Protección contra fuerza bruta (REQ-SEC-006): bloqueo temporal y reto CAPTCHA
-    let currentCaptcha = null;
-
-    function setLoginFormDisabled(disabled) {
-        if (txtLoginUsername) txtLoginUsername.disabled = disabled;
-        if (txtLoginPassword) txtLoginPassword.disabled = disabled;
-        if (btnLogin) btnLogin.disabled = disabled;
+    let loginChallenge = readLoginChallenge();
+    if (loginChallenge?.username && !txtLoginUsername.value) {
+        txtLoginUsername.value = loginChallenge.username;
     }
 
-    function refreshCaptchaChallenge() {
-        currentCaptcha = generateCaptchaChallenge();
-        if (lblCaptchaQuestion) {
-            lblCaptchaQuestion.textContent = currentCaptcha.question;
-        }
-        if (txtCaptchaAnswer) {
-            txtCaptchaAnswer.value = '';
-            clearFieldValidation(txtCaptchaAnswer);
-        }
+    function challengeForCurrentUser() {
+        return loginChallenge && (!loginChallenge.username ||
+            loginChallenge.username.toLowerCase() === txtLoginUsername.value.trim().toLowerCase());
     }
 
-    function showCaptchaUI() {
-        if (captchaContainer) {
-            captchaContainer.classList.remove('d-none');
-        }
-        refreshCaptchaChallenge();
+    function remainingWait() {
+        return challengeForCurrentUser() ? Math.max(0, loginChallenge.until - Date.now()) : 0;
     }
 
-    function hideCaptchaUI() {
-        currentCaptcha = null;
-        if (captchaContainer) {
-            captchaContainer.classList.add('d-none');
-        }
-        if (lblCaptchaQuestion) {
-            lblCaptchaQuestion.textContent = '';
-        }
-        if (txtCaptchaAnswer) {
-            txtCaptchaAnswer.value = '';
-            clearFieldValidation(txtCaptchaAnswer);
-        }
-    }
-
-    function syncBruteForceUI() {
-        const bfState = getBruteForceState();
-
-        if (bfState.isLockedOut) {
-            setLoginFormDisabled(true);
-            if (lockoutBanner) {
-                lockoutBanner.classList.remove('d-none');
-            }
-            if (lblLockoutCountdown) {
-                lblLockoutCountdown.textContent = formatCountdown(bfState.remainingMs);
-            }
-            hideCaptchaUI();
-
+    function syncLoginChallenge() {
+        const remaining = remainingWait();
+        lockoutBanner.classList.toggle('d-none', remaining === 0);
+        lblLockoutCountdown.textContent = formatCountdown(remaining);
+        txtLoginPassword.disabled = btnLogin.disabled = remaining > 0;
+        loginCaptcha.classList.toggle('d-none', !challengeForCurrentUser() || remaining > 0);
+        if (remaining === 0) {
             clearActiveLockoutInterval();
-            activeLockoutInterval = setInterval(() => {
-                const remaining = getRemainingLockoutMs();
-                if (remaining <= 0) {
-                    clearActiveLockoutInterval();
-                    if (lockoutBanner) {
-                        lockoutBanner.classList.add('d-none');
-                    }
-                    if (lblLockoutCountdown) {
-                        lblLockoutCountdown.textContent = formatCountdown(0);
-                    }
-                    setLoginFormDisabled(false);
-                    if (isCaptchaRequired()) {
-                        showCaptchaUI();
-                    }
-                    return;
-                }
-                if (lblLockoutCountdown) {
-                    lblLockoutCountdown.textContent = formatCountdown(remaining);
-                }
-            }, 1000);
-            activeLockoutInterval.unref?.();
-            return;
-        }
-
-        clearActiveLockoutInterval();
-        if (lockoutBanner) {
-            lockoutBanner.classList.add('d-none');
-        }
-        setLoginFormDisabled(false);
-
-        if (bfState.captchaRequired) {
-            if (!currentCaptcha) {
-                showCaptchaUI();
-            } else if (captchaContainer) {
-                captchaContainer.classList.remove('d-none');
-            }
-        } else {
-            hideCaptchaUI();
+        } else if (activeLockoutInterval === null) {
+            activeLockoutInterval = setInterval(syncLoginChallenge, 1000);
         }
     }
 
-    btnRefreshCaptcha?.addEventListener('click', () => {
-        refreshCaptchaChallenge();
+    txtLoginUsername.addEventListener('input', () => {
+        loginCaptcha.reset?.();
+        syncLoginChallenge();
     });
-
-    txtCaptchaAnswer?.addEventListener('input', () => {
-        clearFieldValidation(txtCaptchaAnswer);
-    });
-
-    syncBruteForceUI();
+    syncLoginChallenge();
 
     // 7. Envío del formulario de Inicio de Sesión
     formLogin?.addEventListener('submit', async (e) => {
@@ -420,30 +336,9 @@ async function initLoginController() {
         hideAlert(alertError);
         hideAlert(alertSuccess);
 
-        if (isLockedOut()) {
-            syncBruteForceUI();
-            const remainingText = formatCountdown(getRemainingLockoutMs());
-            showAlert(
-                alertError,
-                `Demasiados intentos fallidos. Acceso bloqueado temporalmente. Intenta nuevamente en ${remainingText}.`
-            );
+        if (remainingWait() > 0) {
+            showAlert(alertError, `Intenta nuevamente en ${formatCountdown(remainingWait())}.`);
             return;
-        }
-
-        const captchaNeeded = isCaptchaRequired();
-        if (captchaNeeded) {
-            if (!currentCaptcha) {
-                showCaptchaUI();
-            }
-            const captchaInput = txtCaptchaAnswer ? txtCaptchaAnswer.value : '';
-            if (!verifyCaptchaAnswer(captchaInput, currentCaptcha?.answer)) {
-                const captchaMsg = 'Respuesta de verificación incorrecta. Resuelve el nuevo reto para continuar.';
-                refreshCaptchaChallenge();
-                setFieldInvalid(txtCaptchaAnswer, errCaptcha, captchaMsg);
-                showAlert(alertError, captchaMsg);
-                return;
-            }
-            clearFieldValidation(txtCaptchaAnswer);
         }
 
         const username = txtLoginUsername ? txtLoginUsername.value.trim() : '';
@@ -466,9 +361,10 @@ async function initLoginController() {
             return;
         }
 
-        if (captchaNeeded) {
-            markCaptchaSolved();
-            hideCaptchaUI();
+        const altcha = challengeForCurrentUser() ? new FormData(formLogin).get('altcha') : undefined;
+        if (challengeForCurrentUser() && !altcha) {
+            showAlert(alertError, 'Completa la verificación ALTCHA para continuar.');
+            return;
         }
 
         clearFieldValidation(txtLoginUsername);
@@ -480,14 +376,25 @@ async function initLoginController() {
         }
 
         try {
-            const session = await authModel.login(username, password);
-            resetBruteForceState();
+            const session = await authModel.login(username, password, altcha);
+            saveLoginChallenge(null);
             clearActiveLockoutInterval();
             if (typeof window !== 'undefined' && window.location) {
                 window.location.href = resolveRedirectPath(session);
             }
         } catch (error) {
             const status = Number(error?.status || error?.problemDetails?.status) || 0;
+            if (altcha) loginCaptcha.reset?.();
+            if (status === 429 || status === 422) {
+                const seconds = status === 429 ? (error.retryAfterSeconds || 900) : 0;
+                loginChallenge = { username, until: Date.now() + seconds * 1000 };
+                saveLoginChallenge(loginChallenge);
+                syncLoginChallenge();
+                showAlert(alertError, status === 429
+                    ? 'Demasiados intentos fallidos. Espera a que termine el bloqueo.'
+                    : 'Completa la verificación ALTCHA para continuar.');
+                return;
+            }
             const friendlyMsg = extractProblemMessage(
                 error,
                 status === 401
@@ -497,18 +404,11 @@ async function initLoginController() {
             setFieldInvalid(txtLoginUsername, errLoginUsername, friendlyMsg);
             setFieldInvalid(txtLoginPassword, errLoginPassword, friendlyMsg);
 
-            if (status === 401) {
-                const bfState = recordFailedLoginAttempt();
-                if (bfState.isLockedOut) {
-                    syncBruteForceUI();
-                }
-            }
-
             showAlert(alertError, friendlyMsg);
         } finally {
             if (btnLogin) {
                 btnLogin.textContent = 'Iniciar Sesión';
-                btnLogin.disabled = isLockedOut();
+                btnLogin.disabled = remainingWait() > 0;
             }
         }
     });
@@ -567,6 +467,12 @@ async function initLoginController() {
             return;
         }
 
+        const altcha = new FormData(formRegister).get('altcha');
+        if (!altcha) {
+            showAlert(alertError, 'Completa la verificación ALTCHA para crear tu cuenta.');
+            return;
+        }
+
         clearFieldValidation(txtRegUsername);
         clearFieldValidation(txtRegEmail);
         clearFieldValidation(txtRegPassword);
@@ -577,7 +483,7 @@ async function initLoginController() {
         }
 
         try {
-            const regResult = await authModel.register(username, email, password);
+            const regResult = await authModel.register(username, email, password, altcha);
 
             showAlert(alertSuccess, 'Cuenta registrada exitosamente. Redirigiendo al catálogo...');
             if (typeof window !== 'undefined' && window.location) {
@@ -585,6 +491,11 @@ async function initLoginController() {
             }
         } catch (error) {
             const status = Number(error?.status || error?.problemDetails?.status) || 0;
+            registerCaptcha.reset?.();
+            if (status === 422) {
+                showAlert(alertError, 'Completa una nueva verificación ALTCHA para crear tu cuenta.');
+                return;
+            }
             const friendlyMsg = extractProblemMessage(
                 error,
                 status === 400

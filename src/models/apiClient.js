@@ -74,7 +74,7 @@ function isPublicEndpoint(endpoint = '') {
     return normalized === AUTH_LOGIN || normalized === AUTH_REGISTER;
 }
 
-function buildApiUrl(endpoint = '') {
+export function buildApiUrl(endpoint = '') {
     if (/^https?:\/\//i.test(endpoint)) {
         return endpoint;
     }
@@ -345,9 +345,14 @@ export const httpClient = async (endpoint, options = {}) => {
         const response = await fetch(url, { ...options, headers });
 
         if (!response.ok) {
-            const problemDetails = await parseProblemDetails(response);
+            const publicAuth = isPublicEndpoint(endpoint);
+            const problemDetails = publicAuth && response.status >= 500
+                ? normalizeProblemDetails(null, response.status)
+                : await parseProblemDetails(response);
             response.problemDetails = problemDetails;
             response.errorMessage = problemDetails.message;
+
+            if (publicAuth) return response;
 
             if (response.status === 401) {
                 console.warn('401 Unauthorized:', problemDetails.message);
@@ -365,7 +370,9 @@ export const httpClient = async (endpoint, options = {}) => {
 
         return response;
     } catch (error) {
-        console.error('Error de conexión con el servidor:', error?.message || 'Fallo de red');
+        if (!isPublicEndpoint(endpoint)) {
+            console.error('Error de conexión con el servidor:', error?.message || 'Fallo de red');
+        }
         throw error;
     }
 };
